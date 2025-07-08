@@ -132,7 +132,7 @@
                     if (!STATE.auth) {
                         console.error("Firebase Auth is not initialized. Cannot proceed with authentication.");
                         VIEW.showNotification("Ошибка: Служба аутентификации Firebase недоступна. Проверьте конфигурацию.", "error");
-                        VIEW.renderUnauthorized(); // Render unauthorized if Firebase Auth is not ready
+                        VIEW.renderUnauthorized('auth_failed'); // Render specific unauthorized message
                         VIEW.hideLoadingIndicator();
                         return;
                     }
@@ -141,7 +141,7 @@
 
                     if (!STATE.currentUserId) {
                         console.error("Authentication failed, currentUserId is null. Rendering unauthorized.");
-                        VIEW.renderUnauthorized(); // Render unauthorized if Firebase auth fails
+                        VIEW.renderUnauthorized('auth_failed'); // Render specific unauthorized message
                         VIEW.hideLoadingIndicator();
                         return;
                     }
@@ -152,7 +152,7 @@
                     
                     if (STATE.userRole === 'guest') {
                         console.error("User role determined as 'guest'. Rendering unauthorized.");
-                        VIEW.renderUnauthorized(); // Show guest message if role is guest
+                        VIEW.renderUnauthorized('guest_role'); // Render specific unauthorized message
                         VIEW.hideLoadingIndicator();
                         return;
                     }
@@ -693,7 +693,7 @@
                         VIEW.showNotification('У вас нет прав для очистки месяца.', 'error');
                         return;
                     }
-                    const confirmed = await VIEW.showConfirmModal(`Вы уверены, что хотите очистить все данные для текущего месяца в графике "${STATE.activeTab}"?`);
+                    const confirmed = await VIEW.showConfirmModal(`Вы уверены, что хотите очистить все данные для текущего месяца в графике "${STATE.activeTab}"?"`);
                     if (!confirmed) return;
 
                     const keyMap = { duty: 'duties', technician: 'techDuties', general: 'generalSchedule' };
@@ -989,20 +989,35 @@
                     }
                 },
 
-                renderUnauthorized() {
+                renderUnauthorized(reason) {
                     const container = document.querySelector(CONFIG.DOM_SELECTORS.container);
                     if (!container) {
                         console.error("Error: App container not found for unauthorized view.");
                         return;
                     }
-                    container.innerHTML = `
-                        <div class="unauthorized">
+                    let messageHtml = '';
+                    if (reason === 'auth_failed') {
+                        messageHtml = `
+                            <h1>Ошибка аутентификации</h1>
+                            <p>Не удалось войти в систему. Пожалуйста, убедитесь, что конфигурация Firebase корректна и попробуйте позже.</p>
+                            <p>Если вы запускаете это приложение в Telegram, возможно, есть проблема с токеном аутентификации.</p>
+                        `;
+                    } else if (reason === 'guest_role') {
+                        messageHtml = `
                             <h1>Доступ ограничен</h1>
                             <p>Ваша заявка на доступ ожидает одобрения администратором.</p>
                             <p>Ваш Telegram ID: <strong>${STATE.telegramUser?.id || 'Неизвестно'}</strong></p>
                             <p>Пожалуйста, сообщите его администратору для получения доступа.</p>
-                        </div>`;
-                    this.hideLoadingIndicator(); // Hide loading indicator after rendering unauthorized message
+                        `;
+                    } else {
+                        messageHtml = `
+                            <h1>Доступ ограничен</h1>
+                            <p>Неизвестная причина ограничения доступа.</p>
+                        `;
+                    }
+
+                    container.innerHTML = `<div class="unauthorized">${messageHtml}</div>`;
+                    this.hideLoadingIndicator();
                 },
 
                 renderAll() {
@@ -1068,7 +1083,9 @@
                     // Management controls (add/delete person)
                     const managementSection = this.managementSection; // Use stored reference
                     if (managementSection) {
-                        managementSection.classList.toggle('hidden-section', STATE.userRole !== 'admin'); // Hide management section for non-admins
+                        // This section is already hidden by default in HTML.
+                        // It will be shown if the user is an admin.
+                        managementSection.classList.toggle('hidden-section', STATE.userRole !== 'admin'); 
                         const addPersonBtn = managementSection.querySelector('[data-action="addPerson"]');
                         if (addPersonBtn) addPersonBtn.disabled = STATE.userRole !== 'admin';
                         if (this.newOfficerNameInput) this.newOfficerNameInput.disabled = STATE.userRole !== 'admin';
