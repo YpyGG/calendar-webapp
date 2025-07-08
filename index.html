@@ -61,11 +61,21 @@
                         overlay: '#summaryModalOverlay',
                         title: '#summaryModalTitle',
                         body: '#summaryModalBody',
+                    },
+                    firebaseSettings: { // New selectors for Firebase settings
+                        section: '#firebaseSettingsSection',
+                        configInput: '#firebaseConfigInput',
+                        tokenInput: '#firebaseTokenInput',
+                        saveBtn: '#saveFirebaseSettingsBtn',
+                        receivedConfig: '#receivedFirebaseConfig',
+                        receivedToken: '#receivedFirebaseToken',
                     }
                 },
                 STORAGE_KEYS: { // These are now Firestore collection/document names
                     USERS_COLLECTION: 'users',
                     MONTHS_COLLECTION: 'months',
+                    LOCAL_FIREBASE_CONFIG: 'localFirebaseConfig', // New local storage key
+                    LOCAL_FIREBASE_TOKEN: 'localFirebaseToken',   // New local storage key
                 },
                 // Removed "8pc" from SHIFT_TYPES
                 SHIFT_TYPES: ["8", "ДС", "День караул", "Ночь караул", "Отсыпной", "Выходной", "Отпуск", "Больничный"],
@@ -114,6 +124,9 @@
                 confirmModalResolve: null,
                 currentSelectedDay: null,
                 unsubscribeListeners: [], // To store Firestore unsubscribe functions
+                // New state for manually entered Firebase config/token
+                manualFirebaseConfig: null,
+                manualFirebaseToken: null,
             };
 
             /**
@@ -123,7 +136,11 @@
                 async init() {
                     VIEW.showLoadingIndicator();
                     this.initTelegram(); // Initialize Telegram Web App first to get user info
-                    this.initFirebase(); // Initialize Firebase
+                    
+                    // Load saved Firebase config and token from localStorage first
+                    this.loadSavedFirebaseSettings();
+                    
+                    await this.initFirebase(); // Initialize Firebase
                     
                     // Log Firebase initialization status
                     console.log("Firebase initialized. STATE.db:", STATE.db ? "OK" : "NULL", "STATE.auth:", STATE.auth ? "OK" : "NULL");
@@ -168,14 +185,33 @@
                     console.log("Application Initialized for user:", STATE.telegramUser, "with role:", STATE.userRole, "Firebase UID:", STATE.currentUserId);
                 },
 
-                initFirebase() {
+                async initFirebase() {
                     try {
-                        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-                        console.log("Parsed Firebase Config:", firebaseConfig); // ADDED THIS LOG
+                        let firebaseConfig = null;
+                        let configSource = 'global __firebase_config';
+
+                        // Try global __firebase_config first
+                        if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                            try {
+                                firebaseConfig = JSON.parse(__firebase_config);
+                                console.log("Parsed Firebase Config from global __firebase_config:", firebaseConfig);
+                            } catch (e) {
+                                console.warn("Failed to parse global __firebase_config:", e);
+                                firebaseConfig = null; // Reset if parsing fails
+                            }
+                        }
+
+                        // If global failed, try manual config from state (loaded from localStorage)
+                        if (!firebaseConfig && STATE.manualFirebaseConfig) {
+                            firebaseConfig = STATE.manualFirebaseConfig;
+                            configSource = 'manual (localStorage)';
+                            console.log("Using Firebase Config from manual (localStorage):", firebaseConfig);
+                        }
+
                         // Add a check for valid config
-                        if (!firebaseConfig || Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey || !firebaseConfig.projectId) { // Modified check for empty object
-                            console.error("Firebase config is missing or invalid:", firebaseConfig);
-                            VIEW.showNotification("Ошибка: Неверная конфигурация Firebase. Убедитесь, что Firebase настроен правильно.", "error");
+                        if (!firebaseConfig || Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey || !firebaseConfig.projectId) {
+                            console.error("Firebase config is missing or invalid. Source:", configSource, "Config:", firebaseConfig);
+                            VIEW.showNotification("Ошибка: Неверная конфигурация Firebase. Убедитесь, что Firebase настроен правильно. Попробуйте ввести вручную в 'Настройках Firebase'.", "error");
                             STATE.db = null; // Ensure state is consistent
                             STATE.auth = null; // Ensure state is consistent
                             return; // Stop initialization if config is bad
@@ -183,7 +219,7 @@
                         const app = initializeApp(firebaseConfig);
                         STATE.db = getFirestore(app);
                         STATE.auth = getAuth(app);
-                        console.log("Firebase initialized. STATE.db:", STATE.db ? "OK" : "NULL", "STATE.auth:", STATE.auth ? "OK" : "NULL");
+                        console.log("Firebase initialized successfully from", configSource, ". STATE.db:", STATE.db ? "OK" : "NULL", "STATE.auth:", STATE.auth ? "OK" : "NULL");
                     } catch (e) {
                         console.error("Error initializing Firebase:", e);
                         VIEW.showNotification("Ошибка инициализации Firebase. Попробуйте позже.", "error");
@@ -201,11 +237,26 @@
                     }
                     try {
                         console.log("Attempting Firebase authentication...");
-                        console.log("Value of __initial_auth_token:", typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : "undefined (will attempt anonymous sign-in)");
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { // Added check for empty string
-                            const userCredential = await signInWithCustomToken(STATE.auth, __initial_auth_token);
+                        let authToken = null;
+                        let tokenSource = 'global __initial_auth_token';
+
+                        // Try global __initial_auth_token first
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            authToken = __initial_auth_token;
+                            console.log("Value of __initial_auth_token (global):", authToken);
+                        }
+
+                        // If global token is not available, try manual token from state
+                        if (!authToken && STATE.manualFirebaseToken) {
+                            authToken = STATE.manualFirebaseToken;
+                            tokenSource = 'manual (localStorage)';
+                            console.log("Value of __initial_auth_token (manual/localStorage):", authToken);
+                        }
+
+                        if (authToken) {
+                            const userCredential = await signInWithCustomToken(STATE.auth, authToken);
                             STATE.currentUserId = userCredential.user.uid;
-                            console.log("Signed in with custom token. Firebase UID:", STATE.currentUserId);
+                            console.log("Signed in with custom token from", tokenSource, ". Firebase UID:", STATE.currentUserId);
                         } else {
                             const userCredential = await signInAnonymously(STATE.auth);
                             STATE.currentUserId = userCredential.user.uid;
@@ -232,6 +283,10 @@
 
                 // --- Управление данными ---
                 async loadUsersFromFirestore() {
+                    if (!STATE.db) {
+                        console.error("Firestore DB is not initialized. Cannot load users.");
+                        return;
+                    }
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     try {
                         const querySnapshot = await getDocs(usersRef);
@@ -312,6 +367,11 @@
                     STATE.unsubscribeListeners.forEach(unsubscribe => unsubscribe());
                     STATE.unsubscribeListeners = [];
 
+                    if (!STATE.db) {
+                        console.error("Firestore DB is not initialized. Cannot set up listeners.");
+                        return;
+                    }
+
                     // Listener for global users data
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     STATE.unsubscribeListeners.push(onSnapshot(usersRef, (snapshot) => {
@@ -353,6 +413,10 @@
                 async saveData() {
                     if (!(STATE.userRole === 'admin' || STATE.userRole === 'boss')) {
                         VIEW.showNotification('У вас нет прав для сохранения изменений.', 'error');
+                        return;
+                    }
+                    if (!STATE.db) {
+                        VIEW.showNotification('База данных не инициализирована. Невозможно сохранить данные.', 'error');
                         return;
                     }
 
@@ -579,6 +643,10 @@
                         VIEW.showNotification("Введите имя в формате 'Фамилия И.О.'", 'error');
                         return;
                     }
+                    if (!STATE.db) {
+                        VIEW.showNotification('База данных не инициализирована. Невозможно добавить сотрудника.', 'error');
+                        return;
+                    }
 
                     // Check if name already exists in STATE.users
                     const existingUserByName = Object.values(STATE.users).find(u => u.name === name);
@@ -614,6 +682,10 @@
                     }
                     if (personIdToDelete === STATE.telegramUser.id.toString()) {
                         VIEW.showNotification('Вы не можете удалить себя.', 'error');
+                        return;
+                    }
+                    if (!STATE.db) {
+                        VIEW.showNotification('База данных не инициализирована. Невозможно удалить сотрудника.', 'error');
                         return;
                     }
 
@@ -675,6 +747,10 @@
                         VIEW.showNotification('Вы не можете изменить свою собственную роль.', 'error');
                         return;
                     }
+                    if (!STATE.db) {
+                        VIEW.showNotification('База данных не инициализирована. Невозможно изменить роль.', 'error');
+                        return;
+                    }
                     if (STATE.users[personId]) {
                         const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                         try {
@@ -709,6 +785,69 @@
                         this.setupFirestoreListeners(); // Revert to Firestore state
                         VIEW.showNotification('Изменения отменены.', 'info');
                     }
+                },
+
+                // New Firebase Settings methods
+                saveFirebaseSettings() {
+                    try {
+                        const configInput = VIEW.firebaseConfigInput.value;
+                        const tokenInput = VIEW.firebaseTokenInput.value;
+
+                        // Validate JSON config
+                        let parsedConfig = null;
+                        if (configInput) {
+                            parsedConfig = JSON.parse(configInput);
+                            if (!parsedConfig.apiKey || !parsedConfig.projectId) {
+                                throw new Error("Неверный формат Firebase Config JSON. Отсутствуют apiKey или projectId.");
+                            }
+                        }
+                        
+                        localStorage.setItem(CONFIG.STORAGE_KEYS.LOCAL_FIREBASE_CONFIG, configInput);
+                        localStorage.setItem(CONFIG.STORAGE_KEYS.LOCAL_FIREBASE_TOKEN, tokenInput);
+                        
+                        STATE.manualFirebaseConfig = parsedConfig;
+                        STATE.manualFirebaseToken = tokenInput;
+
+                        VIEW.showNotification('Настройки Firebase сохранены. Перезапускаем приложение...', 'success');
+                        this.reinitializeApp();
+                    } catch (e) {
+                        console.error("Error saving Firebase settings:", e);
+                        VIEW.showNotification(`Ошибка сохранения настроек Firebase: ${e.message}`, 'error');
+                    }
+                },
+
+                loadSavedFirebaseSettings() {
+                    try {
+                        const savedConfig = localStorage.getItem(CONFIG.STORAGE_KEYS.LOCAL_FIREBASE_CONFIG);
+                        const savedToken = localStorage.getItem(CONFIG.STORAGE_KEYS.LOCAL_FIREBASE_TOKEN);
+                        
+                        if (savedConfig) {
+                            STATE.manualFirebaseConfig = JSON.parse(savedConfig);
+                        }
+                        if (savedToken) {
+                            STATE.manualFirebaseToken = savedToken;
+                        }
+                    } catch (e) {
+                        console.error("Error loading saved Firebase settings from localStorage:", e);
+                        STATE.manualFirebaseConfig = null;
+                        STATE.manualFirebaseToken = null;
+                    }
+                },
+
+                async reinitializeApp() {
+                    VIEW.showLoadingIndicator();
+                    // Clear existing Firebase instances and listeners
+                    if (STATE.unsubscribeListeners) {
+                        STATE.unsubscribeListeners.forEach(unsubscribe => unsubscribe());
+                        STATE.unsubscribeListeners = [];
+                    }
+                    STATE.db = null;
+                    STATE.auth = null;
+                    STATE.currentUserId = null;
+                    STATE.userRole = 'guest';
+
+                    // Re-run the full initialization process
+                    await this.init();
                 },
 
                 // --- Gemini API Integration ---
@@ -830,6 +969,12 @@
                 summaryModalOverlay: null, // New
                 summaryModalTitle: null,   // New
                 summaryModalBody: null,    // New
+                firebaseSettingsSection: null, // New
+                firebaseConfigInput: null,     // New
+                firebaseTokenInput: null,      // New
+                saveFirebaseSettingsBtn: null, // New
+                receivedFirebaseConfig: null,  // New
+                receivedFirebaseToken: null,   // New
 
                 init() {
                     // This function is now called AFTER renderAppShell has run in SERVICE.init()
@@ -883,6 +1028,21 @@
                                     <button class="btn btn--save" data-action="addPerson">Добавить</button>
                                 </div>
                                 <div class="current-officers-list" id="currentOfficersList"></div>
+                            </div>
+                            <button class="btn btn--toggle" data-action="toggleSection" data-target="firebaseSettingsSection" style="margin-top: 10px;">Настройки Firebase</button>
+                            <div class="section-container hidden-section" id="firebaseSettingsSection">
+                                <h3>Настройки Firebase (для отладки)</h3>
+                                <div class="firebase-settings-controls">
+                                    <label for="firebaseConfigInput">Firebase Config (JSON):</label>
+                                    <textarea id="firebaseConfigInput" rows="5" placeholder='{"apiKey": "...", "authDomain": "...", ...}'></textarea>
+                                    <label for="firebaseTokenInput">Initial Auth Token:</label>
+                                    <input type="text" id="firebaseTokenInput" placeholder="eyJhbGciOiJIUzI1NiI...">
+                                    <button class="btn btn--save" data-action="saveFirebaseSettings">Сохранить и Перезапустить</button>
+                                    <div class="debug-info">
+                                        <p>Полученная __firebase_config: <span id="receivedFirebaseConfig"></span></p>
+                                        <p>Полученный __initial_auth_token: <span id="receivedFirebaseToken"></span></p>
+                                    </div>
+                                </div>
                             </div>
                         </main>`;
                     this.renderUserInfo(); // Render user info immediately after shell is created
@@ -970,6 +1130,20 @@
 
                     this.summaryModalBody = document.getElementById('summaryModalBody');       // New
                     if (!this.summaryModalBody) console.error("Element not found: #summaryModalBody");
+
+                    // New Firebase settings elements
+                    this.firebaseSettingsSection = document.querySelector(CONFIG.DOM_SELECTORS.firebaseSettings.section);
+                    if (!this.firebaseSettingsSection) console.error("Element not found:", CONFIG.DOM_SELECTORS.firebaseSettings.section);
+                    this.firebaseConfigInput = document.querySelector(CONFIG.DOM_SELECTORS.firebaseSettings.configInput);
+                    if (!this.firebaseConfigInput) console.error("Element not found:", CONFIG.DOM_SELECTORS.firebaseSettings.configInput);
+                    this.firebaseTokenInput = document.querySelector(CONFIG.DOM_SELECTORS.firebaseSettings.tokenInput);
+                    if (!this.firebaseTokenInput) console.error("Element not found:", CONFIG.DOM_SELECTORS.firebaseSettings.tokenInput);
+                    this.saveFirebaseSettingsBtn = document.querySelector(CONFIG.DOM_SELECTORS.firebaseSettings.saveBtn);
+                    if (!this.saveFirebaseSettingsBtn) console.error("Element not found:", CONFIG.DOM_SELECTORS.firebaseSettings.saveBtn);
+                    this.receivedFirebaseConfig = document.querySelector(CONFIG.DOM_SELECTORS.firebaseSettings.receivedConfig);
+                    if (!this.receivedFirebaseConfig) console.error("Element not found:", CONFIG.DOM_SELECTORS.firebaseSettings.receivedConfig);
+                    this.receivedFirebaseToken = document.querySelector(CONFIG.DOM_SELECTORS.firebaseSettings.receivedToken);
+                    if (!this.receivedFirebaseToken) console.error("Element not found:", CONFIG.DOM_SELECTORS.firebaseSettings.receivedToken);
                 },
 
                 showLoadingIndicator() {
@@ -1002,6 +1176,7 @@
                             <h1>Ошибка аутентификации</h1>
                             <p>Не удалось войти в систему. Пожалуйста, убедитесь, что конфигурация Firebase корректна и попробуйте позже.</p>
                             <p>Если вы запускаете это приложение в Telegram, возможно, есть проблема с токеном аутентификации.</p>
+                            <p>Попробуйте ввести настройки Firebase вручную в соответствующей секции ниже.</p>
                         `;
                     } else if (reason === 'guest_role') {
                         messageHtml = `
@@ -1027,6 +1202,7 @@
                     this.renderAllCalendars();
                     this.renderStatistics();
                     this.renderManagementList();
+                    this.renderFirebaseSettings(); // Render new settings section
                 },
 
                 renderAllCalendars() {
@@ -1388,6 +1564,22 @@
                     if (this.summaryModalOverlay) this.summaryModalOverlay.classList.remove('show');
                 },
 
+                // New Firebase settings rendering
+                renderFirebaseSettings() {
+                    if (!this.firebaseConfigInput || !this.firebaseTokenInput || !this.receivedFirebaseConfig || !this.receivedFirebaseToken) {
+                        console.error("Firebase settings elements not found for rendering.");
+                        return;
+                    }
+
+                    // Populate input fields with saved data if available
+                    this.firebaseConfigInput.value = localStorage.getItem(CONFIG.STORAGE_KEYS.LOCAL_FIREBASE_CONFIG) || '';
+                    this.firebaseTokenInput.value = localStorage.getItem(CONFIG.STORAGE_KEYS.LOCAL_FIREBASE_TOKEN) || '';
+
+                    // Display received global variables (for debugging)
+                    this.receivedFirebaseConfig.textContent = typeof __firebase_config !== 'undefined' && __firebase_config ? __firebase_config : 'Не получено';
+                    this.receivedFirebaseToken.textContent = typeof __initial_auth_token !== 'undefined' && __initial_auth_token ? __initial_auth_token.substring(0, 50) + '...' : 'Не получено'; // Truncate for display
+                },
+
                 // --- Утилиты ---
                 showNotification(message, type = 'info') {
                     const notification = document.createElement('div');
@@ -1482,6 +1674,7 @@
                                  break;
                             }
                             case 'generateMonthSummary': SERVICE.generateMonthSummary(); break; // New
+                            case 'saveFirebaseSettings': SERVICE.saveFirebaseSettings(); break; // New
                         }
                     }
                     
@@ -2066,6 +2259,46 @@
             .calendar-grid {
                 gap: 0px; /* No gap */
             }
+        }
+
+        /* Firebase Settings Section Specific Styles */
+        .firebase-settings-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .firebase-settings-controls label {
+            font-weight: 500;
+            margin-top: 5px;
+        }
+        .firebase-settings-controls textarea,
+        .firebase-settings-controls input[type="text"] {
+            padding: 10px 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-main);
+            background: var(--bg-element);
+            color: var(--text-main);
+            font-family: 'monospace';
+            font-size: 0.9em;
+        }
+        .firebase-settings-controls .btn--save {
+            margin-top: 10px;
+        }
+        .debug-info {
+            background: var(--bg-element-hover);
+            border: 1px solid var(--border-main);
+            border-radius: 8px;
+            padding: 10px;
+            margin-top: 15px;
+            font-size: 0.85em;
+            word-break: break-all;
+        }
+        .debug-info p {
+            margin-bottom: 5px;
+        }
+        .debug-info span {
+            font-weight: bold;
+            color: var(--border-accent);
         }
     </style>
 </head>
