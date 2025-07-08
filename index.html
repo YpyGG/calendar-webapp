@@ -134,6 +134,7 @@
 
                     await this.loadUsersFromFirestore(); // Load global user data (and add current user as guest if new)
                     this.determineUserRole(); // Determine role after users are loaded
+                    console.log("User role after determination:", STATE.userRole); // Added for debugging
                     
                     if (STATE.userRole === 'guest') {
                         VIEW.renderUnauthorized(); // Show guest message if role is guest
@@ -251,14 +252,15 @@
 
                 determineUserRole() {
                     const currentTelegramId = STATE.telegramUser.id.toString();
-                    if (STATE.users[currentTelegramId]) {
+                    if (currentTelegramId === CONFIG.DEFAULT_ADMIN_ID) {
+                        STATE.userRole = 'admin'; // Force admin role for the default admin ID
+                    } else if (STATE.users[currentTelegramId]) {
                         STATE.userRole = STATE.users[currentTelegramId].role;
                     } else {
-                        STATE.userRole = 'guest'; // Should not happen if loadUsersFromFirestore is called correctly
+                        STATE.userRole = 'guest';
                     }
 
                     // Populate officers and technicians lists from STATE.users
-                    // Filter users based on their name being in initial lists OR having specific roles
                     STATE.officers = Object.values(STATE.users)
                                         .filter(u => CONFIG.INITIAL_DATA.officers.includes(u.name) || u.role === 'admin' || u.role === 'boss')
                                         .map(u => u.name);
