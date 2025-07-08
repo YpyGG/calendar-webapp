@@ -140,51 +140,41 @@
             const SERVICE = {
                 async init() {
                     VIEW.showLoadingIndicator();
-                    this.initTelegram(); // Initialize Telegram Web App first to get user info
-                    
-                    await this.initFirebase(); // Initialize Firebase
-                    
-                    // Log Firebase initialization status
-                    console.log("Firebase initialized. STATE.db:", STATE.db ? "OK" : "NULL", "STATE.auth:", STATE.auth ? "OK" : "NULL");
-
-                    // Only proceed with authentication if Firebase Auth is initialized
-                    if (!STATE.auth) {
-                        console.error("Firebase Auth is not initialized. Cannot proceed with authentication.");
-                        VIEW.showNotification("Ошибка: Служба аутентификации Firebase недоступна. Проверьте конфигурацию.", "error");
-                        VIEW.renderUnauthorized('auth_failed'); // Render specific unauthorized message
+                    try {
+                        this.initTelegram();
+                        await this.initFirebase();
+                        if (!STATE.auth) {
+                            console.error("Firebase Auth is not initialized. Exiting init.");
+                            VIEW.showNotification("Ошибка: Служба аутентификации Firebase недоступна. Проверьте конфигурацию.", "error");
+                            VIEW.renderUnauthorized('auth_failed');
+                            return;
+                        }
+                        await this.authenticateFirebase();
+                        if (!STATE.currentUserId) {
+                            console.error("Authentication failed, currentUserId is null. Exiting init.");
+                            VIEW.renderUnauthorized('auth_failed');
+                            return;
+                        }
+                        await this.loadUsersFromFirestore();
+                        this.determineUserRole();
+                        if (STATE.userRole === 'guest') {
+                            console.error("User role determined as 'guest'. Rendering unauthorized.");
+                            VIEW.renderUnauthorized('guest_role');
+                            return;
+                        }
+                        VIEW.renderAppShell();
+                        VIEW.initAppElements();
+                        this.setupFirestoreListeners();
+                        CONTROLLER.init();
+                        VIEW.renderAll();
+                        VIEW.renderMonthSelector();
+                    } catch (e) {
+                        console.error("Unhandled error during application initialization:", e);
+                        VIEW.showNotification("Произошла неожиданная ошибка при инициализации приложения. Подробности в консоли.", "error");
+                        VIEW.renderUnauthorized('unhandled_error');
+                    } finally {
                         VIEW.hideLoadingIndicator();
-                        return;
                     }
-
-                    await this.authenticateFirebase();
-
-                    if (!STATE.currentUserId) {
-                        console.error("Authentication failed, currentUserId is null. Rendering unauthorized.");
-                        VIEW.renderUnauthorized('auth_failed'); // Render specific unauthorized message
-                        VIEW.hideLoadingIndicator();
-                        return;
-                    }
-
-                    await this.loadUsersFromFirestore(); // Load global user data (and add current user as guest if new)
-                    this.determineUserRole(); // Determine role after users are loaded
-                    console.log("User role after determination:", STATE.userRole); // Added for debugging
-                    
-                    if (STATE.userRole === 'guest') {
-                        console.error("User role determined as 'guest'. Rendering unauthorized.");
-                        VIEW.renderUnauthorized('guest_role'); // Render specific unauthorized message
-                        VIEW.hideLoadingIndicator();
-                        return;
-                    }
-
-                    // Render the main app shell and initialize DOM element references
-                    VIEW.renderAppShell();
-                    VIEW.initAppElements(); // Get references to all dynamically created elements
-                    
-                    this.setupFirestoreListeners(); // Set up real-time listeners for calendar data
-                    CONTROLLER.init();
-                    VIEW.renderAll(); // Render initial data into the app shell
-                    VIEW.hideLoadingIndicator();
-                    console.log("Application Initialized for user:", STATE.telegramUser, "with role:", STATE.userRole, "Firebase UID:", STATE.currentUserId);
                 },
 
                 async initFirebase() {
@@ -200,11 +190,8 @@
                             return; // Stop initialization if config is bad
                         }
                         const app = initializeApp(firebaseConfig);
-                        console.log("Firebase App initialized:", app); // Log the app instance
                         STATE.db = getFirestore(app);
                         STATE.auth = getAuth(app);
-                        console.log("Firebase Auth instance:", STATE.auth); // Log the auth instance
-                        console.log("Firebase initialized successfully from hardcoded config. STATE.db:", STATE.db ? "OK" : "NULL", "STATE.auth:", STATE.auth ? "OK" : "NULL");
                     } catch (e) {
                         console.error("Error initializing Firebase:", e);
                         VIEW.showNotification("Ошибка инициализации Firebase. Попробуйте позже.", "error");
@@ -225,8 +212,6 @@
                         // Always sign in anonymously to avoid custom token issues
                         const userCredential = await signInAnonymously(STATE.auth);
                         STATE.currentUserId = userCredential.user.uid;
-                        console.log("Signed in anonymously. Firebase UID:", STATE.currentUserId);
-
                     } catch (error) {
                         console.error("Error during Firebase authentication:", error);
                         // Updated notification message to reflect anonymous sign-in attempt
@@ -250,13 +235,13 @@
                 // --- Управление данными ---
                 async loadUsersFromFirestore() {
                     if (!STATE.db) {
-                        console.error("Firestore DB is not initialized. Cannot load users.");
+                        VIEW.showNotification("Ошибка: База данных не инициализирована. Невозможно загрузить пользователей.", "error"); // Added notification
                         return;
                     }
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     try {
-                        const querySnapshot = await getDocs(usersRef);
                         STATE.users = {};
+                        const querySnapshot = await getDocs(usersRef);
                         querySnapshot.forEach(doc => {
                             STATE.users[doc.id] = doc.data();
                         });
@@ -290,20 +275,19 @@
                             STATE.users[currentTelegramId].name = telegramUserName; // Update local state immediately
                         }
 
-                        // Add initial officers/technicians as 'worker' if they are not already in Firestore
+                        // Add initial officers/technicians as 'worker' если их нет в Firestore — убираю placeholder-логику
                         const allInitialPeople = [...new Set([...CONFIG.INITIAL_DATA.officers, ...CONFIG.INITIAL_DATA.technicians])];
                         for (const name of allInitialPeople) {
                             const existingUser = Object.values(STATE.users).find(u => u.name === name);
                             if (!existingUser) {
-                                const placeholderId = `_ph_${name.replace(/\W/g, '')}_${Date.now()}`;
-                                STATE.users[placeholderId] = { name: name, role: 'worker' };
-                                await setDoc(doc(usersRef, placeholderId), STATE.users[placeholderId]);
+                                // Не добавляем placeholder, просто выводим предупреждение
+                                console.warn(`Пользователь '${name}' из начального списка не найден в Firestore и не добавлен, так как нет Telegram ID.`);
                             }
                         }
-
                     } catch (e) {
-                        console.error("Error loading users from Firestore:", e);
-                        VIEW.showNotification("Ошибка загрузки данных пользователей.", "error");
+                        console.error("Error in loadUsersFromFirestore:", e);
+                        VIEW.showNotification("Ошибка загрузки данных пользователей. Проверьте правила безопасности Firestore.", "error"); // Added specific message
+                        throw e; // Re-throw to be caught by the main init try-catch
                     }
                 },
 
@@ -317,13 +301,13 @@
                         STATE.userRole = 'guest';
                     }
 
-                    // Populate officers and technicians lists from STATE.users
+                    // Формируем officers и technicians только по исходным спискам, без ролей
                     STATE.officers = Object.values(STATE.users)
-                                        .filter(u => CONFIG.INITIAL_DATA.officers.includes(u.name) || u.role === 'admin' || u.role === 'boss')
-                                        .map(u => u.name);
+                        .filter(u => CONFIG.INITIAL_DATA.officers.includes(u.name))
+                        .map(u => u.name);
                     STATE.technicians = Object.values(STATE.users)
-                                        .filter(u => CONFIG.INITIAL_DATA.technicians.includes(u.name) || u.role === 'worker' || u.role === 'boss' || u.role === 'admin')
-                                        .map(u => u.name);
+                        .filter(u => CONFIG.INITIAL_DATA.technicians.includes(u.name))
+                        .map(u => u.name);
                     STATE.officers = [...new Set(STATE.officers)].sort();
                     STATE.technicians = [...new Set(STATE.technicians)].sort();
                 },
@@ -334,7 +318,6 @@
                     STATE.unsubscribeListeners = [];
 
                     if (!STATE.db) {
-                        console.error("Firestore DB is not initialized. Cannot set up listeners.");
                         return;
                     }
 
@@ -344,10 +327,13 @@
                         snapshot.docChanges().forEach(change => {
                             STATE.users[change.doc.id] = change.doc.data();
                         });
-                        this.determineUserRole(); // Re-determine role if users data changes
-                        VIEW.renderManagementList(); // Re-render management list
-                        VIEW.renderUserInfo(); // Update user info display
-                    }, (error) => console.error("Error listening to users:", error)));
+                        this.determineUserRole();
+                        VIEW.renderManagementList();
+                        VIEW.renderUserInfo();
+                    }, (error) => {
+                        console.error("Error listening to users:", error);
+                        VIEW.showNotification("Ошибка при прослушивании изменений пользователей.", "error");
+                    }));
 
                     // Listener for current month's calendar data
                     const monthDocRef = doc(collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.MONTHS_COLLECTION}`), `${STATE.year}_${STATE.currentMonth}`);
@@ -359,10 +345,6 @@
                             STATE.generalSchedule[STATE.currentMonth] = data.generalSchedule || {};
                             STATE.colors = data.colors || {};
                         } else {
-                            STATE.duties[STATE.currentMonth] = {};
-                            STATE.techDuties[STATE.currentMonth] = {};
-                            STATE.generalSchedule[STATE.currentMonth] = {};
-                            STATE.colors = {};
                             // Initialize with default July data if current month is July and document doesn't exist
                             if (STATE.currentMonth === 6) {
                                 STATE.duties[6] = { ...CONFIG.INITIAL_DATA.julyDuties };
@@ -373,7 +355,10 @@
                         }
                         STATE.hasUnsavedChanges = false; // Reset on data refresh from Firestore
                         VIEW.renderAll();
-                    }, (error) => console.error("Error listening to month data:", error)));
+                    }, (error) => {
+                        console.error("Error listening to month data:", error);
+                        VIEW.showNotification("Ошибка при прослушивании изменений данных месяца.", "error");
+                    }));
                 },
 
                 async saveData() {
@@ -409,15 +394,22 @@
                 // --- Управление UI ---
                 async changeMonth(newMonth) {
                     if (STATE.hasUnsavedChanges) {
-                        const confirmed = await VIEW.showConfirmModal('У вас есть несохраненные изменения. Вы уверены, что хотите продолжить без сохранения?');
-                        if (!confirmed) {
-                            VIEW.monthSelector.value = STATE.currentMonth;
-                            return;
-                        }
+                        VIEW.showConfirmModal('У вас есть несохраненные изменения. Вы уверены, что хотите продолжить без сохранения?').then(confirmed => {
+                            if (!confirmed) {
+                                VIEW.renderMonthSelector();
+                                return;
+                            }
+                            STATE.currentMonth = parseInt(newMonth, 10);
+                            SERVICE.setupFirestoreListeners();
+                            VIEW.renderAll();
+                            VIEW.renderMonthSelector();
+                        });
+                    } else {
+                        STATE.currentMonth = parseInt(newMonth, 10);
+                        SERVICE.setupFirestoreListeners();
+                        VIEW.renderAll();
+                        VIEW.renderMonthSelector();
                     }
-                    STATE.currentMonth = parseInt(newMonth, 10);
-                    this.setupFirestoreListeners(); // Re-setup listener for new month
-                    VIEW.renderAll();
                 },
 
                 async toggleEditMode() {
@@ -447,16 +439,61 @@
                         if (calendarType === 'duty') VIEW.showDutyModal();
                         else VIEW.showAssignmentModal(calendarType);
                     } else {
-                        VIEW.showEnlargedDayView(day);
+                        VIEW.showEnlargedDayView(day, calendarType); // Передаю тип календаря
                     }
                 },
 
-                assignDuty(person) {
+                async assignDuty(person) {
                     const { currentMonth, currentSelectedDay: day } = STATE;
                     const dayKey = day.toString();
                     const assignment = { person, shift: 'ДС' };
                     const isPersonTechnician = STATE.technicians.includes(person);
                     const actionType = person === CONFIG.NO_DUTY_LABEL ? 'delete' : 'add';
+                    // --- Исправление: определяем alreadyAssigned ---
+                    const alreadyAssigned =
+                        (STATE.duties[currentMonth] && STATE.duties[currentMonth][dayKey] === person) ||
+                        (STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][dayKey]) && STATE.techDuties[currentMonth][dayKey].some(a => a.person === person)) ||
+                        (STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][dayKey]) && STATE.generalSchedule[currentMonth][dayKey].some(a => a.person === person));
+
+                    // Проверка "Ночь караул" -> "Отсыпной/Выходной"
+                    const prevDay = (parseInt(day, 10) - 1).toString();
+                    let wasNightBefore = false;
+                    if (STATE.duties[currentMonth] && STATE.duties[currentMonth][prevDay] === person) {
+                        wasNightBefore = STATE.duties[currentMonth][prevDay] === person && (assignment.shift === 'Ночь караул' || assignment.shift === 'НК');
+                    }
+                    if (!wasNightBefore && STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][prevDay])) {
+                        wasNightBefore = STATE.techDuties[currentMonth][prevDay].some(a => a.person === person && (a.shift === 'Ночь караул' || a.shift === 'НК'));
+                    }
+                    if (!wasNightBefore && STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][prevDay])) {
+                        wasNightBefore = STATE.generalSchedule[currentMonth][prevDay].some(a => a.person === person && (a.shift === 'Ночь караул' || a.shift === 'НК'));
+                    }
+                    if (wasNightBefore && assignment.shift !== 'Отсыпной' && assignment.shift !== 'О' && assignment.shift !== 'Выходной' && assignment.shift !== 'В') {
+                        const confirmed = await VIEW.showConfirmModal(`${person} был на 'Ночь караул' накануне. Вы уверены, что хотите лишить его отдыха и поставить на смену '${assignment.shift}'? Это не рекомендуется!`);
+                        if (!confirmed) {
+                            VIEW.closeModal();
+                            return;
+                        }
+                    }
+
+                    if (actionType === 'add' && alreadyAssigned) {
+                        const confirmed = await VIEW.showConfirmModal(`${person} уже назначен на этот день. Заменить его смену на новую?`);
+                        if (!confirmed) {
+                            VIEW.closeModal();
+                            return;
+                        }
+                        // Удаляем все старые назначения этого человека на этот день во всех графиках
+                        if (STATE.duties[currentMonth] && STATE.duties[currentMonth][dayKey] === person) {
+                            delete STATE.duties[currentMonth][dayKey];
+                        }
+                        if (STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][dayKey])) {
+                            STATE.techDuties[currentMonth][dayKey] = STATE.techDuties[currentMonth][dayKey].filter(a => a.person !== person);
+                            if (STATE.techDuties[currentMonth][dayKey].length === 0) delete STATE.techDuties[currentMonth][dayKey];
+                        }
+                        if (STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][dayKey])) {
+                            STATE.generalSchedule[currentMonth][dayKey] = STATE.generalSchedule[currentMonth][dayKey].filter(a => a.person !== person);
+                            if (STATE.generalSchedule[currentMonth][dayKey].length === 0) delete STATE.generalSchedule[currentMonth][dayKey];
+                        }
+                    }
 
                     if (actionType === 'delete') delete STATE.duties[currentMonth][dayKey];
                     else STATE.duties[currentMonth][dayKey] = person;
@@ -484,53 +521,35 @@
                     VIEW.renderAll();
                 },
 
-                addAssignment(person, shift, calendarType) {
+                async addAssignment(person, shift, calendarType) {
                     const { currentMonth, currentSelectedDay: day } = STATE;
                     const dayKey = day.toString();
                     const scheduleKey = calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
-                    
-                    const assignments = STATE[scheduleKey][currentMonth][dayKey] || [];
+                    let assignments = STATE[scheduleKey][currentMonth][dayKey] || [];
                     const newAssignment = { person, shift };
+                    const alreadyAssigned =
+                        (STATE.duties[currentMonth] && STATE.duties[currentMonth][dayKey] === person) ||
+                        (STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][dayKey]) && STATE.techDuties[currentMonth][dayKey].some(a => a.person === person)) ||
+                        (STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][dayKey]) && STATE.generalSchedule[currentMonth][dayKey].some(a => a.person === person));
 
-                    if (assignments.some(a => a.person === person && a.shift === shift)) {
+                    // --- Новый блок: предупреждение, если человек уже назначен в другом графике ---
+                    let assignedElsewhere = false;
+                    if (calendarType !== 'duty' && STATE.duties[currentMonth] && STATE.duties[currentMonth][dayKey] === person) assignedElsewhere = true;
+                    if (calendarType !== 'technician' && STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][dayKey]) && STATE.techDuties[currentMonth][dayKey].some(a => a.person === person)) assignedElsewhere = true;
+                    if (calendarType !== 'general' && STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][dayKey]) && STATE.generalSchedule[currentMonth][dayKey].some(a => a.person === person)) assignedElsewhere = true;
+                    if (assignedElsewhere) {
+                        const confirmed = await VIEW.showConfirmModal(`${person} уже назначен в другом графике на этот день. Добавить всё равно?`);
+                        if (!confirmed) return;
+                    }
+
+                    if (alreadyAssigned) {
+                        const confirmed = await VIEW.showConfirmModal(`${person} уже назначен на этот день. Заменить его смену на новую?`);
+                        if (!confirmed) return;
+                        // Удаляем все старые назначения этого человека на этот день в этом графике
+                        assignments = assignments.filter(a => a.person !== person);
+                    } else if (assignments.some(a => a.person === person && a.shift === shift)) {
                         VIEW.showNotification('Такое назначение уже существует.', 'info');
                         return;
-                    }
-                    
-                    // Logic for "ДС" shift in General Schedule
-                    if (calendarType === 'general' && shift === "ДС") {
-                        const existingDsIndex = assignments.findIndex(item => item.shift === "ДС" && STATE.officers.includes(item.person));
-                        if (existingDsIndex !== -1) {
-                            const existingDsPerson = assignments[existingDsIndex].person;
-                            VIEW.showConfirmModal(`На этот день уже назначен дежурный (ДС): ${existingDsPerson}. Вы хотите заменить его на ${newAssignment.person}?`)
-                                .then(confirmed => {
-                                    if (confirmed) {
-                                        // Remove old DS assignment from general schedule
-                                        assignments.splice(existingDsIndex, 1);
-                                        // Remove old DS assignment from duty schedule
-                                        if (STATE.duties[currentMonth] && STATE.duties[currentMonth][dayKey] === existingDsPerson) {
-                                            delete STATE.duties[currentMonth][dayKey];
-                                        }
-                                        // Remove old DS assignment from technician schedule if applicable
-                                        if (STATE.technicians.includes(existingDsPerson)) {
-                                            const techAssignments = STATE.techDuties[currentMonth][dayKey] || [];
-                                            STATE.techDuties[currentMonth][dayKey] = techAssignments.filter(a => !(a.person === existingDsPerson && a.shift === "ДС"));
-                                            if (STATE.techDuties[currentMonth][dayKey].length === 0) delete STATE.techDuties[currentMonth][dayKey];
-                                        }
-                                        // Add new assignment and sync
-                                        assignments.push(newAssignment);
-                                        assignments.sort((a, b) => a.person.localeCompare(b.person));
-                                        this.syncSchedules('add', newAssignment, calendarType);
-                                        STATE.hasUnsavedChanges = true;
-                                        VIEW.renderAssignmentModalList(calendarType);
-                                        VIEW.renderAll();
-                                        VIEW.showNotification('Назначение добавлено и заменено!', 'success');
-                                    } else {
-                                        VIEW.showNotification('Замена отменена.', 'info');
-                                    }
-                                });
-                            return; // Exit to wait for confirmation
-                        }
                     }
 
                     assignments.push(newAssignment);
@@ -570,10 +589,17 @@
                     const { person, shift } = assignment;
                     const { currentMonth, currentSelectedDay: day } = STATE;
                     const dayKey = day.toString();
-                    
                     const isPersonOfficer = STATE.officers.includes(person);
                     const isPersonTechnician = STATE.technicians.includes(person);
-
+                    // --- Особое правило для Морозова и Ребракова: если в technician 'ДС', то и в duty ---
+                    if (sourceCalendar === 'technician' && (person === 'Морозов В.А.' || person === 'Ребраков Т.В.')) {
+                        if (shift === 'ДС' && actionType === 'add') {
+                            STATE.duties[currentMonth][dayKey] = person;
+                        } else if (shift === 'ДС' && actionType === 'delete') {
+                            if (STATE.duties[currentMonth][dayKey] === person) delete STATE.duties[currentMonth][dayKey];
+                        }
+                    }
+                    // --- Старая логика ---
                     const update = (schedule, key, assign, add) => {
                         const current = schedule[currentMonth][key] || [];
                         let filtered = current.filter(a => !(a.person === assign.person && a.shift === assign.shift));
@@ -584,7 +610,6 @@
                         if (filtered.length > 0) schedule[currentMonth][key] = filtered;
                         else delete schedule[currentMonth][key];
                     };
-
                     if (sourceCalendar === 'technician') {
                         update(STATE.generalSchedule, dayKey, assignment, actionType === 'add');
                     } else if (sourceCalendar === 'general') {
@@ -592,7 +617,6 @@
                             if (actionType === 'add') STATE.duties[currentMonth][dayKey] = person;
                             else if (STATE.duties[currentMonth][dayKey] === person) delete STATE.duties[currentMonth][dayKey];
                         }
-                        // Engineers are technicians, so if "ДС" is assigned to an engineer, it should appear in tech schedule
                         if (isPersonTechnician && (shift === '8' || shift === 'ДС')) {
                             update(STATE.techDuties, dayKey, assignment, actionType === 'add');
                         }
@@ -609,6 +633,14 @@
                         VIEW.showNotification("Введите имя в формате 'Фамилия И.О.'", 'error');
                         return;
                     }
+                    if (!telegramId || !/^\d+$/.test(telegramId)) {
+                        VIEW.showNotification('Telegram ID должен содержать только цифры.', 'error');
+                        return;
+                    }
+                    if (telegramId.length < 6) {
+                        VIEW.showNotification('Telegram ID слишком короткий.', 'error');
+                        return;
+                    }
                     if (!STATE.db) {
                         VIEW.showNotification('База данных не инициализирована. Невозможно добавить сотрудника.', 'error');
                         return;
@@ -621,10 +653,10 @@
                         return;
                     }
 
-                    let newId = telegramId ? telegramId.toString() : `_ph_${name.replace(/\W/g, '')}_${Date.now()}`;
+                    let newId = telegramId.toString();
                     
                     // Check if Telegram ID already exists
-                    if (telegramId && STATE.users[telegramId.toString()]) {
+                    if (STATE.users[telegramId.toString()]) {
                         VIEW.showNotification('Пользователь с таким Telegram ID уже существует.', 'info');
                         return;
                     }
@@ -634,7 +666,7 @@
                         await setDoc(doc(usersRef, newId), { name: name, role: 'worker' }); // Default to worker
                         VIEW.showNotification(`Сотрудник ${name} добавлен!`, 'success');
                         VIEW.newOfficerNameInput.value = '';
-                        VIEW.newOfficerTelegramIdInput.value = ''; // Clear new ID input
+                        VIEW.newOfficerTelegramIdInput.value = '';
                     } catch (e) {
                         console.error("Error adding person to Firestore:", e);
                         VIEW.showNotification("Ошибка добавления сотрудника.", "error");
@@ -643,7 +675,7 @@
 
                 async deletePerson(personIdToDelete) {
                     if (STATE.userRole !== 'admin') {
-                        VIEW.showNotification('Только администратор может удалять сотрудников.', 'error');
+                        VIEW.showNotification('У вас нет прав для удаления сотрудников.', 'error');
                         return;
                     }
                     if (personIdToDelete === STATE.telegramUser.id.toString()) {
@@ -736,13 +768,17 @@
                         VIEW.showNotification('У вас нет прав для очистки месяца.', 'error');
                         return;
                     }
-                    const confirmed = await VIEW.showConfirmModal(`Вы уверены, что хотите очистить все данные для текущего месяца в графике "${STATE.activeTab}"?"`);
+                    let tabName = 'графике';
+                    if (STATE.activeTab === 'duty') tabName = 'графике дежурств';
+                    else if (STATE.activeTab === 'technician') tabName = 'графике техников';
+                    else if (STATE.activeTab === 'general') tabName = 'общем графике';
+                    const confirmed = await VIEW.showConfirmModal(`Вы уверены, что хотите очистить все данные для текущего месяца в ${tabName}?`);
                     if (!confirmed) return;
 
                     const keyMap = { duty: 'duties', technician: 'techDuties', general: 'generalSchedule' };
                     STATE[keyMap[STATE.activeTab]][STATE.currentMonth] = {};
                     await this.saveData();
-                    VIEW.showNotification(`Данные для текущего месяца в графике "${STATE.activeTab}" очищены.`, 'info');
+                    VIEW.showNotification(`Данные для текущего месяца в ${tabName} очищены.`, 'info');
                 },
                 
                 async cancelChanges() {
@@ -752,8 +788,6 @@
                         VIEW.showNotification('Изменения отменены.', 'info');
                     }
                 },
-
-                // Removed saveFirebaseSettings and loadSavedFirebaseSettings as they are no longer needed for manual input
 
                 async reinitializeApp() {
                     VIEW.showLoadingIndicator();
@@ -830,7 +864,7 @@
                         let chatHistory = [];
                         chatHistory.push({ role: "user", parts: [{ text: prompt }] });
                         const payload = { contents: chatHistory };
-                        const apiKey = ""; // If you want to use models other than gemini-2.0-flash or imagen-3.0-generate-002, provide an API key here. Otherwise, leave this as-is.
+                        const apiKey = "AIzaSyC13hfpbNKBs3xTY8YxisyS5lSF3xajUyQ"; // Ваш ключ Gemini API
                         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
                         
                         const response = await fetch(apiUrl, {
@@ -839,6 +873,12 @@
                             body: JSON.stringify(payload)
                         });
                         const result = await response.json();
+
+                        if (result.error) {
+                            VIEW.showNotification('Ошибка Gemini API: ' + (result.error.message || 'Неизвестная ошибка'), 'error');
+                            console.error("Gemini API error:", result.error);
+                            return;
+                        }
 
                         if (result.candidates && result.candidates.length > 0 &&
                             result.candidates[0].content && result.candidates[0].content.parts &&
@@ -855,6 +895,13 @@
                     } finally {
                         VIEW.hideLoadingIndicator();
                     }
+                },
+
+                changeYear(newYear) {
+                    STATE.year = parseInt(newYear, 10);
+                    SERVICE.setupFirestoreListeners();
+                    VIEW.renderAll();
+                    VIEW.renderMonthSelector();
                 }
             };
 
@@ -906,7 +953,6 @@
             
             VIEW.renderAppShell = function() {
                 const container = document.querySelector(CONFIG.DOM_SELECTORS.container);
-                // Ensure container exists before setting innerHTML
                 if (!container) {
                     console.error("Error: App container not found. Cannot render app shell.");
                     return;
@@ -915,8 +961,16 @@
                     <header class="header">
                         <div class="user-info" id="userInfo"></div>
                         <h1>Календарь дежурств</h1>
-                        <select class="month-selector" id="monthSelector"></select>
-                        <button class="btn btn--edit-mode" id="toggleEditModeBtn" data-action="toggleEditMode">Редактировать</button>
+                        <div class="month-year-selectors">
+                            <div class="custom-dropdown" id="monthDropdown">
+                                <div class="dropdown-selected" id="monthDropdownSelected"></div>
+                                <div class="dropdown-list" id="monthDropdownList"></div>
+                            </div>
+                            <div class="custom-dropdown" id="yearDropdown">
+                                <div class="dropdown-selected" id="yearDropdownSelected"></div>
+                                <div class="dropdown-list" id="yearDropdownList"></div>
+                            </div>
+                        </div>
                     </header>
                     <main class="main-content">
                         <nav class="tab-navigation" id="tabNavigation">
@@ -928,11 +982,14 @@
                             <div id="dutyTab" class="tab-content active"><div class="calendar-grid" id="dutyCalendarGrid" data-calendar-type="duty"></div></div>
                             <div id="technicianTab" class="tab-content"><div class="calendar-grid" id="technicianCalendarGrid" data-calendar-type="technician"></div></div>
                             <div id="generalTab" class="tab-content"><div class="calendar-grid" id="generalCalendarGrid" data-calendar-type="general"></div></div>
-                            <div class="action-buttons-wrapper hidden" id="actionButtons">
-                                <button class="btn btn--save" data-action="save">Сохранить изменения</button>
-                                <button class="btn btn--cancel" data-action="cancel">Отменить изменения</button>
-                                <button class="btn btn--clear" data-action="clear">Очистить месяц</button>
-                            </div>
+                        </div>
+                        <div id="editModeBtnWrapper" style="display:flex;justify-content:center;margin:18px 0 0 0;">
+                            <button class="btn btn--edit-mode" id="toggleEditModeBtn" data-action="toggleEditMode">Редактировать</button>
+                        </div>
+                        <div class="action-buttons-wrapper hidden" id="actionButtons">
+                            <button class="btn btn--save" data-action="save">Сохранить изменения</button>
+                            <button class="btn btn--cancel" data-action="cancel">Отменить изменения</button>
+                            <button class="btn btn--clear" data-action="clear">Очистить месяц</button>
                         </div>
                         <button class="btn btn--toggle" data-action="toggleSection" data-target="statisticsSection">Статистика</button>
                         <div class="section-container hidden-section" id="statisticsSection">
@@ -950,116 +1007,112 @@
                             </div>
                             <div class="current-officers-list" id="currentOfficersList"></div>
                         </div>
-                        <button class="btn btn--toggle" data-action="toggleSection" data-target="firebaseSettingsSection" style="margin-top: 10px;">Настройки Firebase</button>
-                        <div class="section-container" id="firebaseSettingsSection">
-                            <h3>Настройки Firebase (для отладки)</h3>
-                            <div class="firebase-settings-controls">
-                                <p>Полученная __firebase_config: <span id="receivedFirebaseConfig"></span></p>
-                                <p>Полученный __initial_auth_token: <span id="receivedFirebaseToken"></span></p>
-                            </div>
-                        </div>
                     </main>`;
-                this.renderUserInfo(); // Render user info immediately after shell is created
+                this.renderUserInfo();
             };
+
+            VIEW.renderMonthSelector = function() {
+                // Кастомный dropdown для месяца
+                const monthNames = [];
+                for (let i = 0; i < 12; i++) {
+                    monthNames.push(new Date(STATE.year, i).toLocaleString('ru-RU', { month: 'long' }));
+                }
+                const monthDropdownSelected = document.getElementById('monthDropdownSelected');
+                const monthDropdownList = document.getElementById('monthDropdownList');
+                if (monthDropdownSelected && monthDropdownList) {
+                    monthDropdownSelected.textContent = monthNames[STATE.currentMonth].charAt(0).toUpperCase() + monthNames[STATE.currentMonth].slice(1);
+                    monthDropdownList.innerHTML = '';
+                    monthNames.forEach((name, i) => {
+                        const item = document.createElement('div');
+                        item.className = 'dropdown-item' + (i === STATE.currentMonth ? ' selected' : '');
+                        item.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+                        item.dataset.value = i;
+                        item.addEventListener('click', () => {
+                            SERVICE.changeMonth(i);
+                            monthDropdownList.classList.remove('show');
+                        });
+                        monthDropdownList.appendChild(item);
+                    });
+                }
+                // Кастомный dropdown для года
+                const yearDropdownSelected = document.getElementById('yearDropdownSelected');
+                const yearDropdownList = document.getElementById('yearDropdownList');
+                if (yearDropdownSelected && yearDropdownList) {
+                    yearDropdownSelected.textContent = STATE.year;
+                    yearDropdownList.innerHTML = '';
+                    for (let y = 2024; y <= 2026; y++) {
+                        const item = document.createElement('div');
+                        item.className = 'dropdown-item' + (y === STATE.year ? ' selected' : '');
+                        item.textContent = y;
+                        item.dataset.value = y;
+                        item.addEventListener('click', () => {
+                            SERVICE.changeYear(y);
+                            yearDropdownList.classList.remove('show');
+                        });
+                        yearDropdownList.appendChild(item);
+                    }
+                }
+            };
+
+            // JS-логика открытия/закрытия dropdown
+            document.addEventListener('click', function(e) {
+                document.querySelectorAll('.custom-dropdown').forEach(drop => {
+                    if (!drop.contains(e.target)) {
+                        drop.querySelector('.dropdown-list')?.classList.remove('show');
+                    }
+                });
+            });
+            document.addEventListener('click', function(e) {
+                if (e.target.classList.contains('dropdown-selected')) {
+                    const list = e.target.nextElementSibling;
+                    if (list) list.classList.toggle('show');
+                }
+            });
 
             VIEW.initAppElements = function() {
                 // Get all static and dynamic elements once the app shell is rendered
-                this.monthSelector = document.querySelector(CONFIG.DOM_SELECTORS.monthSelector);
-                if (!this.monthSelector) console.error("Element not found:", CONFIG.DOM_SELECTORS.monthSelector);
+                // List of critical selectors. If any of these are missing, the app cannot function.
+                const criticalSelectors = {
+                    newOfficerNameInput: CONFIG.DOM_SELECTORS.newOfficerName,
+                    newOfficerTelegramIdInput: CONFIG.DOM_SELECTORS.newOfficerTelegramId,
+                    dutyCalendarGrid: CONFIG.DOM_SELECTORS.dutyCalendarGrid,
+                    technicianCalendarGrid: CONFIG.DOM_SELECTORS.technicianCalendarGrid,
+                    generalCalendarGrid: CONFIG.DOM_SELECTORS.generalCalendarGrid,
+                    statsList: CONFIG.DOM_SELECTORS.statsList,
+                    currentOfficersList: CONFIG.DOM_SELECTORS.currentOfficersList,
+                    actionButtonsWrapper: CONFIG.DOM_SELECTORS.actionButtons,
+                    tabNavigation: CONFIG.DOM_SELECTORS.tabNavigation,
+                    loadingIndicator: CONFIG.DOM_SELECTORS.loadingIndicator,
+                    editModalOverlay: CONFIG.DOM_SELECTORS.editModal.overlay,
+                    editModalTitle: CONFIG.DOM_SELECTORS.editModal.title,
+                    editModalBody: CONFIG.DOM_SELECTORS.editModal.body,
+                    viewModalOverlay: CONFIG.DOM_SELECTORS.viewModal.overlay,
+                    viewModalTitle: CONFIG.DOM_SELECTORS.viewModal.title,
+                    viewModalBody: CONFIG.DOM_SELECTORS.viewModal.body,
+                    confirmModalOverlay: CONFIG.DOM_SELECTORS.confirmModal.overlay,
+                    confirmModalMessage: CONFIG.DOM_SELECTORS.confirmModal.message,
+                    confirmModalConfirmBtn: CONFIG.DOM_SELECTORS.confirmModal.confirmBtn,
+                    confirmModalCancelBtn: CONFIG.DOM_SELECTORS.confirmModal.cancelBtn,
+                    toggleEditModeBtn: '#toggleEditModeBtn', // Direct ID
+                    statisticsSection: '#statisticsSection', // Direct ID
+                    managementSection: '#managementSection', // Direct ID
+                    summaryModalOverlay: CONFIG.DOM_SELECTORS.summaryModal.overlay,
+                    summaryModalTitle: CONFIG.DOM_SELECTORS.summaryModal.title,
+                    summaryModalBody: CONFIG.DOM_SELECTORS.summaryModal.body,
+                };
 
-                this.newOfficerNameInput = document.querySelector(CONFIG.DOM_SELECTORS.newOfficerName);
-                if (!this.newOfficerNameInput) console.error("Element not found:", CONFIG.DOM_SELECTORS.newOfficerName);
-
-                this.newOfficerTelegramIdInput = document.querySelector(CONFIG.DOM_SELECTORS.newOfficerTelegramId);
-                if (!this.newOfficerTelegramIdInput) console.error("Element not found:", CONFIG.DOM_SELECTORS.newOfficerTelegramId);
-
-                this.dutyCalendarGrid = document.querySelector(CONFIG.DOM_SELECTORS.dutyCalendarGrid);
-                if (!this.dutyCalendarGrid) console.error("Element not found:", CONFIG.DOM_SELECTORS.dutyCalendarGrid);
-
-                this.technicianCalendarGrid = document.querySelector(CONFIG.DOM_SELECTORS.technicianCalendarGrid);
-                if (!this.technicianCalendarGrid) console.error("Element not found:", CONFIG.DOM_SELECTORS.technicianCalendarGrid);
-
-                this.generalCalendarGrid = document.querySelector(CONFIG.DOM_SELECTORS.generalCalendarGrid);
-                if (!this.generalCalendarGrid) console.error("Element not found:", CONFIG.DOM_SELECTORS.generalCalendarGrid);
-
-                this.statsList = document.querySelector(CONFIG.DOM_SELECTORS.statsList);
-                if (!this.statsList) console.error("Element not found:", CONFIG.DOM_SELECTORS.statsList);
-
-                this.currentOfficersList = document.querySelector(CONFIG.DOM_SELECTORS.currentOfficersList);
-                if (!this.currentOfficersList) console.error("Element not found:", CONFIG.DOM_SELECTORS.currentOfficersList);
-
-                this.actionButtonsWrapper = document.querySelector(CONFIG.DOM_SELECTORS.actionButtons);
-                if (!this.actionButtonsWrapper) console.error("Element not found:", CONFIG.DOM_SELECTORS.actionButtons);
-
-                this.tabNavigation = document.querySelector(CONFIG.DOM_SELECTORS.tabNavigation);
-                if (!this.tabNavigation) console.error("Element not found:", CONFIG.DOM_SELECTORS.tabNavigation);
-
-                this.loadingIndicator = document.querySelector(CONFIG.DOM_SELECTORS.loadingIndicator);
-                if (!this.loadingIndicator) console.error("Element not found:", CONFIG.DOM_SELECTORS.loadingIndicator);
-
-                this.editModalOverlay = document.querySelector(CONFIG.DOM_SELECTORS.editModal.overlay);
-                if (!this.editModalOverlay) console.error("Element not found:", CONFIG.DOM_SELECTORS.editModal.overlay);
-
-                this.editModalTitle = document.querySelector(CONFIG.DOM_SELECTORS.editModal.title);
-                if (!this.editModalTitle) console.error("Element not found:", CONFIG.DOM_SELECTORS.editModal.title);
-
-                this.editModalBody = document.querySelector(CONFIG.DOM_SELECTORS.editModal.body);
-                if (!this.editModalBody) console.error("Element not found:", CONFIG.DOM_SELECTORS.editModal.body);
-
-                this.viewModalOverlay = document.querySelector(CONFIG.DOM_SELECTORS.viewModal.overlay);
-                if (!this.viewModalOverlay) console.error("Element not found:", CONFIG.DOM_SELECTORS.viewModal.overlay);
-
-                this.viewModalTitle = document.querySelector(CONFIG.DOM_SELECTORS.viewModal.title);
-                if (!this.viewModalTitle) console.error("Element not found:", CONFIG.DOM_SELECTORS.viewModal.title);
-
-                this.viewModalBody = document.querySelector(CONFIG.DOM_SELECTORS.viewModal.body);
-                if (!this.viewModalBody) console.error("Element not found:", CONFIG.DOM_SELECTORS.viewModal.body);
-
-                this.confirmModalOverlay = document.querySelector(CONFIG.DOM_SELECTORS.confirmModal.overlay);
-                if (!this.confirmModalOverlay) console.error("Element not found:", CONFIG.DOM_SELECTORS.confirmModal.overlay);
-
-                this.confirmModalMessage = document.querySelector(CONFIG.DOM_SELECTORS.confirmModal.message);
-                if (!this.confirmModalMessage) console.error("Element not found:", CONFIG.DOM_SELECTORS.confirmModal.message);
-
-                this.confirmModalConfirmBtn = document.querySelector(CONFIG.DOM_SELECTORS.confirmModal.confirmBtn);
-                if (!this.confirmModalConfirmBtn) console.error("Element not found:", CONFIG.DOM_SELECTORS.confirmModal.confirmBtn);
-
-                this.confirmModalCancelBtn = document.querySelector(CONFIG.DOM_SELECTORS.confirmModal.cancelBtn);
-                if (!this.confirmModalCancelBtn) console.error("Element not found:", CONFIG.DOM_SELECTORS.confirmModal.cancelBtn);
-
-                this.toggleEditModeBtn = document.getElementById('toggleEditModeBtn'); // Get by ID
-                if (!this.toggleEditModeBtn) console.error("Element not found: #toggleEditModeBtn");
-
-                this.statisticsSection = document.getElementById('statisticsSection');
-                if (!this.statisticsSection) console.error("Element not found: #statisticsSection");
-
-                this.managementSection = document.getElementById('managementSection');
-                if (!this.managementSection) console.error("Element not found: #managementSection");
-
-                this.summaryModalOverlay = document.getElementById('summaryModalOverlay'); // New
-                if (!this.summaryModalOverlay) console.error("Element not found: #summaryModalOverlay");
-
-                this.summaryModalTitle = document.getElementById('summaryModalTitle');     // New
-                if (!this.summaryModalTitle) console.error("Element not found: #summaryModalTitle");
-
-                this.summaryModalBody = document.getElementById('summaryModalBody');       // New
-                if (!this.summaryModalBody) console.error("Element not found: #summaryModalBody");
-
-                // New Firebase settings elements
-                this.firebaseSettingsSection = document.querySelector(CONFIG.DOM_SELECTORS.firebaseSettings.section);
-                if (!this.firebaseSettingsSection) console.error("Element not found:", CONFIG.DOM_SELECTORS.firebaseSettings.section);
-                // Removed firebaseConfigInput and firebaseTokenInput
-                // this.firebaseConfigInput = document.querySelector(CONFIG.DOM_SELECTORS.firebaseSettings.configInput);
-                // if (!this.firebaseConfigInput) console.error("Element not found:", CONFIG.DOM_SELECTORS.firebaseSettings.configInput);
-                // this.firebaseTokenInput = document.querySelector(CONFIG.DOM_SELECTORS.firebaseSettings.tokenInput);
-                // if (!this.firebaseTokenInput) console.error("Element not found:", CONFIG.DOM_SELECTORS.firebaseSettings.tokenInput);
-                // Removed saveFirebaseSettingsBtn
-                // this.saveFirebaseSettingsBtn = document.querySelector(CONFIG.DOM_SELECTORS.firebaseSettings.saveBtn);
-                // if (!this.saveFirebaseSettingsBtn) console.error("Element not found:", CONFIG.DOM_SELECTORS.firebaseSettings.saveBtn);
-                this.receivedFirebaseConfig = document.querySelector(CONFIG.DOM_SELECTORS.firebaseSettings.receivedConfig);
-                if (!this.receivedFirebaseConfig) console.error("Element not found:", CONFIG.DOM_SELECTORS.firebaseSettings.receivedConfig);
-                this.receivedFirebaseToken = document.querySelector(CONFIG.DOM_SELECTORS.firebaseSettings.receivedToken);
-                if (!this.receivedFirebaseToken) console.error("Element not found:", CONFIG.DOM_SELECTORS.firebaseSettings.receivedToken);
+                for (const key in criticalSelectors) {
+                    if (criticalSelectors.hasOwnProperty(key)) {
+                        const selector = criticalSelectors[key];
+                        this[key] = document.querySelector(selector);
+                        if (!this[key]) {
+                            const errorMessage = `Ошибка инициализации DOM: Элемент '${selector}' (ключ: ${key}) не найден.`;
+                            console.error(errorMessage);
+                            // Throw an error to stop initialization and trigger the unhandled_error view
+                            throw new Error(errorMessage);
+                        }
+                    }
+                }
             };
 
             VIEW.showLoadingIndicator = function() {
@@ -1101,6 +1154,11 @@
                         <p>Ваш Telegram ID: <strong>${STATE.telegramUser?.id || 'Неизвестно'}</strong></p>
                         <p>Пожалуйста, сообщите его администратору для получения доступа.</p>
                     `;
+                } else if (reason === 'unhandled_error') { // New case for general unhandled errors
+                    messageHtml = `
+                        <h1>Произошла ошибка</h1>
+                        <p>Приложение столкнулось с неожиданной ошибкой во время инициализации. Пожалуйста, попробуйте перезагрузить страницу или свяжитесь с администратором.</p>
+                    `;
                 } else {
                     messageHtml = `
                         <h1>Доступ ограничен</h1>
@@ -1118,7 +1176,7 @@
                 this.renderAllCalendars();
                 this.renderStatistics();
                 this.renderManagementList();
-                this.renderFirebaseSettings(); // Render new settings section
+                // Удаляю вызов renderFirebaseSettings
             };
 
             VIEW.renderAllCalendars = function() {
@@ -1128,16 +1186,45 @@
             };
             
             VIEW.renderMonthSelector = function() {
-                const selector = this.monthSelector; // Use stored reference
-                if (!selector) return; // Defensive check
-                selector.innerHTML = '';
+                // Кастомный dropdown для месяца
+                const monthNames = [];
                 for (let i = 0; i < 12; i++) {
-                    const monthName = new Date(STATE.year, i).toLocaleString('ru-RU', { month: 'long' });
-                    const option = document.createElement('option');
-                    option.value = i;
-                    option.textContent = `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} ${STATE.year}`;
-                    option.selected = (i === STATE.currentMonth);
-                    selector.appendChild(option);
+                    monthNames.push(new Date(STATE.year, i).toLocaleString('ru-RU', { month: 'long' }));
+                }
+                const monthDropdownSelected = document.getElementById('monthDropdownSelected');
+                const monthDropdownList = document.getElementById('monthDropdownList');
+                if (monthDropdownSelected && monthDropdownList) {
+                    monthDropdownSelected.textContent = monthNames[STATE.currentMonth].charAt(0).toUpperCase() + monthNames[STATE.currentMonth].slice(1);
+                    monthDropdownList.innerHTML = '';
+                    monthNames.forEach((name, i) => {
+                        const item = document.createElement('div');
+                        item.className = 'dropdown-item' + (i === STATE.currentMonth ? ' selected' : '');
+                        item.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+                        item.dataset.value = i;
+                        item.addEventListener('click', () => {
+                            SERVICE.changeMonth(i);
+                            monthDropdownList.classList.remove('show');
+                        });
+                        monthDropdownList.appendChild(item);
+                    });
+                }
+                // Кастомный dropdown для года
+                const yearDropdownSelected = document.getElementById('yearDropdownSelected');
+                const yearDropdownList = document.getElementById('yearDropdownList');
+                if (yearDropdownSelected && yearDropdownList) {
+                    yearDropdownSelected.textContent = STATE.year;
+                    yearDropdownList.innerHTML = '';
+                    for (let y = 2024; y <= 2026; y++) {
+                        const item = document.createElement('div');
+                        item.className = 'dropdown-item' + (y === STATE.year ? ' selected' : '');
+                        item.textContent = y;
+                        item.dataset.value = y;
+                        item.addEventListener('click', () => {
+                            SERVICE.changeYear(y);
+                            yearDropdownList.classList.remove('show');
+                        });
+                        yearDropdownList.appendChild(item);
+                    }
                 }
             };
 
@@ -1152,13 +1239,14 @@
                     content.classList.toggle('active', content.id === `${STATE.activeTab}Tab`);
                 });
 
-                // Edit mode button visibility and text
-                const editBtn = this.toggleEditModeBtn; // Use stored reference
-                if (editBtn) {
+                // Edit mode button теперь всегда под календарём
+                const editBtnWrapper = document.getElementById('editModeBtnWrapper');
+                const editBtn = this.toggleEditModeBtn;
+                if (editBtnWrapper && editBtn) {
+                    editBtnWrapper.style.display = (STATE.userRole === 'admin' || STATE.userRole === 'boss') ? 'flex' : 'none';
                     editBtn.textContent = STATE.isEditMode ? 'Завершить' : 'Редактировать';
                     editBtn.classList.toggle('btn--cancel', STATE.isEditMode);
                     editBtn.classList.toggle('btn--edit-mode', !STATE.isEditMode);
-                    editBtn.disabled = !(STATE.userRole === 'admin' || STATE.userRole === 'boss');
                 }
 
                 // Action buttons visibility (save/cancel/clear)
@@ -1169,16 +1257,15 @@
                         btn.disabled = !STATE.hasUnsavedChanges;
                     });
                     actionButtonsWrapper.querySelectorAll('.btn--cancel, .btn--clear').forEach(btn => {
-                        btn.disabled = !(STATE.isEditMode && (STATE.userRole === 'admin' || STATE.userRole === 'boss')); // Only active if in edit mode and has permissions
+                        btn.disabled = !(STATE.isEditMode && (STATE.userRole === 'admin' || STATE.userRole === 'boss'));
                     });
                 }
 
                 // Management controls (add/delete person)
                 const managementSection = this.managementSection; // Use stored reference
                 if (managementSection) {
-                    // This section is already hidden by default in HTML.
-                    // It will be shown if the user is an admin.
-                    managementSection.classList.toggle('hidden-section', STATE.userRole !== 'admin'); 
+                    // Скрываю секцию полностью для не-админов
+                    managementSection.style.display = (STATE.userRole === 'admin') ? '' : 'none';
                     const addPersonBtn = managementSection.querySelector('[data-action="addPerson"]');
                     if (addPersonBtn) addPersonBtn.disabled = STATE.userRole !== 'admin';
                     if (this.newOfficerNameInput) this.newOfficerNameInput.disabled = STATE.userRole !== 'admin';
@@ -1227,7 +1314,8 @@
                     const assignmentsArray = Array.isArray(dayAssignments) ? dayAssignments : (typeof dayAssignments === 'string' ? [{ person: dayAssignments, shift: '' }] : []);
                     
                     const entriesContainer = cell.querySelector('.day-entries-container');
-                    assignmentsArray.forEach(a => entriesContainer.appendChild(this.createDayEntry(a.person, a.shift)));
+                    // Передаём тип календаря для правильного отображения кружков
+                    assignmentsArray.forEach(a => entriesContainer.appendChild(this.createDayEntry(a.person, a.shift, calendarType)));
                     
                     fragment.appendChild(cell);
                 }
@@ -1236,18 +1324,53 @@
                 grid.appendChild(fragment);
             };
             
-            VIEW.createDayEntry = function(person, shift) {
+            VIEW.createDayEntry = function(person, shift, calendarType) {
+                // Получаем инициалы: первая буква фамилии и имени
+                let initials = '';
+                if (person) {
+                    const parts = person.split(' ');
+                    if (parts.length > 1) {
+                        initials = (parts[0][0] || '').toUpperCase() + (parts[1][0] || '').toUpperCase();
+                    } else {
+                        initials = (person[0] || '').toUpperCase();
+                    }
+                }
+                // Сокращение смены
+                function getShiftShort(shift) {
+                    if (!shift) return '';
+                    const map = {
+                        'День караул': 'ДК',
+                        'Ночь караул': 'НК',
+                        'Отпуск': 'ОТ',
+                        'Больничный': 'БЛ',
+                        'Выходной': 'В',
+                        'Отсыпной': 'О',
+                        'ДС': 'ДС',
+                        '8': '8'
+                    };
+                    return map[shift] || shift.slice(0, 2).toUpperCase();
+                }
+                const shortShift = getShiftShort(shift);
                 const entry = document.createElement('div');
-                entry.className = 'day-entry';
-                entry.title = shift ? `${person} (${shift})` : person;
-                
-                const personColor = this.getColorFor(person);
-                entry.style.backgroundColor = personColor;
-                entry.style.color = this.isLightColor(personColor) ? '#333' : '#fff';
-                
-                // Display only the last name or full name with initials
-                const displayName = person.match(/^[А-ЯЁ]\.[А-ЯЁ]\.$/) ? person : person.split(' ')[0];
-                entry.innerHTML = `<span>${displayName}</span>` + (shift ? `<span class="shift-type">(${shift})</span>` : '');
+                // Для duty только инициалы, для остальных — инициалы + смена
+                if (calendarType === 'duty') {
+                    entry.className = 'avatar-initials avatar-grid';
+                    entry.title = person;
+                    const personColor = this.getColorFor(person);
+                    entry.style.backgroundColor = personColor;
+                    entry.style.color = this.isLightColor(personColor) ? '#333' : '#fff';
+                    entry.innerHTML = `<span class="avatar-letters">${initials}</span>`;
+                } else {
+                    entry.className = 'avatar-initials avatar-grid';
+                    entry.title = shift ? `${person} (${shift})` : person;
+                    const personColor = this.getColorFor(person);
+                    entry.style.backgroundColor = personColor;
+                    entry.style.color = this.isLightColor(personColor) ? '#333' : '#fff';
+                    entry.innerHTML = `
+                        <span class="avatar-letters">${initials}</span>
+                        <span class="avatar-shift">${shortShift}</span>
+                    `;
+                }
                 return entry;
             };
 
@@ -1282,25 +1405,36 @@
             VIEW.renderManagementList = function() {
                 const list = this.currentOfficersList; // Use stored reference
                 if (!list) return; // Defensive check
-                list.innerHTML = '';
-
+                // --- Добавляем поле поиска ---
+                let searchInput = document.getElementById('officerSearchInput');
+                if (!searchInput) {
+                    searchInput = document.createElement('input');
+                    searchInput.type = 'text';
+                    searchInput.id = 'officerSearchInput';
+                    searchInput.placeholder = 'Поиск сотрудника...';
+                    searchInput.style.margin = '0 0 10px 0';
+                    searchInput.style.padding = '8px 12px';
+                    searchInput.style.borderRadius = '8px';
+                    searchInput.style.border = '1px solid #4a5568';
+                    searchInput.style.width = '100%';
+                    list.parentNode.insertBefore(searchInput, list);
+                }
+                const filter = (searchInput.value || '').toLowerCase();
                 // Get all users from STATE.users, sorted by name
                 const allUsers = Object.entries(STATE.users).sort(([, a], [, b]) => a.name.localeCompare(b.name));
-
-                allUsers.forEach(([id, userData]) => {
+                // --- Фильтрация по поиску ---
+                const filteredUsers = filter ? allUsers.filter(([, u]) => u.name.toLowerCase().includes(filter)) : allUsers;
+                list.innerHTML = '';
+                filteredUsers.forEach(([id, userData]) => {
                     const item = document.createElement('div');
                     item.className = 'current-officer-item';
-                    
-                    const telegramIdDisplay = id.startsWith('_ph_') ? '' : ` (ID: ${id})`; // Don't show placeholder IDs
+                    const telegramIdDisplay = ` (ID: ${id})`;
                     item.innerHTML = `<span class="person-name">${userData.name}</span>
                                       <span class="telegram-id">${telegramIdDisplay}</span>`;
-
                     // Role selector
                     const roleSelect = document.createElement('select');
                     roleSelect.className = 'role-selector';
                     roleSelect.dataset.personId = id; // Store the ID for lookup
-                    
-                    // Admin can assign boss, worker, guest roles
                     const rolesToAssign = ['boss', 'worker', 'guest'];
                     rolesToAssign.forEach(role => {
                         const option = document.createElement('option');
@@ -1311,8 +1445,6 @@
                         }
                         roleSelect.appendChild(option);
                     });
-
-                    // Disable selector if not admin or if it's the current admin's entry
                     if (STATE.userRole !== 'admin' || id === STATE.telegramUser.id.toString()) {
                         roleSelect.disabled = true;
                     }
@@ -1320,7 +1452,6 @@
                         SERVICE.changePersonRole(e.target.dataset.personId, e.target.value);
                     });
                     item.appendChild(roleSelect);
-
                     // Delete button
                     const deleteBtn = document.createElement('button');
                     deleteBtn.className = 'delete-officer-btn';
@@ -1328,14 +1459,14 @@
                     deleteBtn.title = `Удалить ${userData.name}`;
                     deleteBtn.dataset.action = 'deletePerson'; // New action name
                     deleteBtn.dataset.personIdToDelete = id; // Pass the ID to delete
-
                     if (STATE.userRole !== 'admin' || id === STATE.telegramUser.id.toString()) { // Admin cannot delete self
                         deleteBtn.disabled = true;
                     }
-
                     item.appendChild(deleteBtn);
                     list.appendChild(item);
                 });
+                // --- Событие фильтрации ---
+                searchInput.oninput = () => this.renderManagementList();
             };
 
             // --- Модальные окна ---
@@ -1354,35 +1485,144 @@
                 this.openModal('edit');
             };
 
+            // --- Группы сотрудников ---
+            const TECHNICIANS_GROUP = ["Денщиков А.А.", "Кузавлев П.С.", "Лебедев А.В."];
+
             VIEW.showAssignmentModal = function(calendarType) {
                 const modal = this.editModalBody; // Use stored reference
                 if (!modal) return; // Defensive check
                 this.editModalTitle.textContent = `Назначить смену на ${STATE.currentSelectedDay}-е число`; // Use stored reference
                 modal.dataset.calendarType = calendarType;
 
-                const people = calendarType === 'technician' ? STATE.technicians : STATE.officers.concat(STATE.technicians).filter((v, i, a) => a.indexOf(v) === i).sort();
-                
-                const peopleOptionsHTML = people.map(p => `<option value="${p}">${p}</option>`).join('');
-                // Filter out "ДС" for technicians calendar, but allow for general
-                const shiftsForSelect = (calendarType === 'technician') ? CONFIG.SHIFT_TYPES.filter(s => s !== "ДС") : CONFIG.SHIFT_TYPES;
-                const shiftOptionsHTML = shiftsForSelect.map((s, i) => `<option value="${s}" ${i === 0 ? 'selected' : ''}>${s}</option>`).join('');
+                // --- Группировка сотрудников ---
+                const officers = STATE.officers.filter(n => !TECHNICIANS_GROUP.includes(n));
+                const technicians = TECHNICIANS_GROUP.filter(n => STATE.technicians.includes(n));
+                const workers = Object.values(STATE.users)
+                    .filter(u => u.role === 'worker' && !officers.includes(u.name) && !technicians.includes(u.name))
+                    .map(u => u.name)
+                    .sort();
+
+                // --- Для графика техников: только 5 человек ---
+                const TECHNICIAN_FIVE = ["Морозов В.А.", "Ребраков Т.В.", "Кузавлев П.С.", "Лебедев А.В.", "Денщиков А.А."];
+
+                let people = [];
+                if (calendarType === 'duty') {
+                    people = officers;
+                } else if (calendarType === 'technician') {
+                    people = TECHNICIAN_FIVE;
+                } else if (calendarType === 'general') {
+                    people = [...officers, ...technicians, ...workers];
+                }
+
+                // --- Подсветка: кто уже назначен в других графиках на этот день ---
+                const day = STATE.currentSelectedDay;
+                const currentMonth = STATE.currentMonth;
+                const assignedInDuty = STATE.duties[currentMonth] && STATE.duties[currentMonth][day] ? [STATE.duties[currentMonth][day]] : [];
+                const assignedInTech = (STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][day])) ? STATE.techDuties[currentMonth][day].map(a => a.person) : [];
+                const assignedInGeneral = (STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][day])) ? STATE.generalSchedule[currentMonth][day].map(a => a.person) : [];
+                const allAssigned = new Set([...assignedInDuty, ...assignedInTech, ...assignedInGeneral]);
+
+                // --- Формируем select ---
+                let peopleOptionsHTML = '';
+                if (calendarType === 'general') {
+                    if (officers.length) {
+                        peopleOptionsHTML += '<optgroup label="Офицеры">' + officers.map(p => {
+                            const isAssignedElsewhere = allAssigned.has(p);
+                            return `<option value="${p}"${isAssignedElsewhere ? ' style=\"background:#533483;color:#fff;\"' : ''}>${p}${isAssignedElsewhere ? ' ⚠️' : ''}</option>`;
+                        }).join('') + '</optgroup>';
+                    }
+                    if (technicians.length) {
+                        peopleOptionsHTML += '<optgroup label="Техники">' + technicians.map(p => {
+                            const isAssignedElsewhere = allAssigned.has(p);
+                            return `<option value="${p}"${isAssignedElsewhere ? ' style=\"background:#533483;color:#fff;\"' : ''}>${p}${isAssignedElsewhere ? ' ⚠️' : ''}</option>`;
+                        }).join('') + '</optgroup>';
+                    }
+                    if (workers.length) {
+                        peopleOptionsHTML += '<optgroup label="Работяги">' + workers.map(p => {
+                            const isAssignedElsewhere = allAssigned.has(p);
+                            return `<option value="${p}"${isAssignedElsewhere ? ' style=\"background:#533483;color:#fff;\"' : ''}>${p}${isAssignedElsewhere ? ' ⚠️' : ''}</option>`;
+                        }).join('') + '</optgroup>';
+                    }
+                } else {
+                    peopleOptionsHTML = people.map(p => {
+                        const isAssignedElsewhere = allAssigned.has(p);
+                        return `<option value="${p}"${isAssignedElsewhere ? ' style=\"background:#533483;color:#fff;\"' : ''}>${p}${isAssignedElsewhere ? ' ⚠️' : ''}</option>`;
+                    }).join('');
+                }
+
+                // --- Смены ---
+                const personSelectId = 'personSelect';
+                const shiftSelectId = 'shiftSelect';
+                const shiftsForSelect = CONFIG.SHIFT_TYPES;
+                let shiftOptionsHTML = '';
+                if (calendarType === 'technician') {
+                    // Только для Морозова и Ребракова 'ДС' доступна
+                    shiftOptionsHTML = shiftsForSelect.map((s, i) => {
+                        if (s === 'ДС') {
+                            return `<option value="${s}" ${i === 0 ? 'selected' : ''} disabled>${s}</option>`;
+                        } else {
+                            return `<option value="${s}" ${i === 0 ? 'selected' : ''}>${s}</option>`;
+                        }
+                    }).join('');
+                } else {
+                    shiftOptionsHTML = shiftsForSelect.map((s, i) => `<option value="${s}" ${i === 0 ? 'selected' : ''}>${s}</option>`).join('');
+                }
 
                 modal.innerHTML = `
                     <div class="assignment-controls">
-                        <select id="personSelect">${peopleOptionsHTML}</select>
-                        <select id="shiftSelect">${shiftOptionsHTML}</select>
+                        <select id="${personSelectId}">${peopleOptionsHTML}</select>
+                        <select id="${shiftSelectId}">${shiftOptionsHTML}</select>
                         <button class="btn btn--save" data-action="addAssignment">Добавить назначение</button>
                     </div>
                     <div class="assignments-list-container">
                         <h5>Текущие назначения:</h5>
                         <div id="assignmentsList"></div>
                     </div>`;
-                
                 this.renderAssignmentModalList(calendarType);
                 this.openModal('edit');
+                // --- Автофокус на select ---
+                setTimeout(() => {
+                    const personSelect = modal.querySelector('#personSelect');
+                    if (personSelect) personSelect.focus();
+                    // --- Для графика техников: если выбран Морозов или Ребраков, 'ДС' становится доступна ---
+                    const shiftSelect = modal.querySelector('#shiftSelect');
+                    if (calendarType === 'technician' && personSelect && shiftSelect) {
+                        personSelect.onchange = function() {
+                            const selectedName = personSelect.value;
+                            Array.from(shiftSelect.options).forEach(opt => {
+                                if (opt.value === 'ДС') {
+                                    opt.disabled = !(selectedName === 'Морозов В.А.' || selectedName === 'Ребраков Т.В.');
+                                }
+                            });
+                            // если выбрана 'ДС', а она стала disabled, переключить на первую доступную
+                            if (shiftSelect.value === 'ДС' && shiftSelect.options[shiftSelect.selectedIndex].disabled) {
+                                shiftSelect.value = shiftSelect.options[0].value;
+                            }
+                        };
+                        personSelect.onchange(); // инициализация
+                    }
+                    // --- Блокировка смены 'ДС' для техников и работяг в общем графике ---
+                    if (calendarType === 'general' && personSelect && shiftSelect) {
+                        personSelect.onchange = function() {
+                            const selectedName = personSelect.value;
+                            if (technicians.includes(selectedName) || workers.includes(selectedName)) {
+                                // disable 'ДС'
+                                Array.from(shiftSelect.options).forEach(opt => {
+                                    if (opt.value === 'ДС') opt.disabled = true;
+                                    else opt.disabled = false;
+                                });
+                                // если выбрана 'ДС', переключить на первую доступную
+                                if (shiftSelect.value === 'ДС') shiftSelect.value = shiftSelect.options[0].value;
+                            } else {
+                                Array.from(shiftSelect.options).forEach(opt => { opt.disabled = false; });
+                            }
+                        };
+                        personSelect.onchange(); // инициализация
+                    }
+                }, 0);
             };
 
-            VIEW.showEnlargedDayView = function(day) {
+            VIEW.showEnlargedDayView = function(day, calendarType) {
                 const { year, currentMonth } = STATE;
                 const fullDate = new Date(year, currentMonth, day).toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
                 this.viewModalTitle.textContent = fullDate; // Use stored reference
@@ -1390,33 +1630,41 @@
                 if (!body) return; // Defensive check
                 body.innerHTML = '';
 
-                // Collect all assignments for this day from all schedules
-                const allAssignments = [];
-                if (STATE.duties[currentMonth] && STATE.duties[currentMonth][day]) {
-                    allAssignments.push({ person: STATE.duties[currentMonth][day], shift: 'ДС' });
-                }
-                if (STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][day])) {
-                    allAssignments.push(...STATE.techDuties[currentMonth][day]);
-                }
-                if (STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][day])) {
-                    allAssignments.push(...STATE.generalSchedule[currentMonth][day]);
-                }
-                
-                // Filter out duplicates (person + shift)
-                const uniqueAssignments = Array.from(new Map(allAssignments.map(a => [`${a.person}-${a.shift}`, a])).values());
-                
-                if (uniqueAssignments.length === 0) {
+                // --- Новый блок: показываем все назначения по всем графикам ---
+                const duty = STATE.duties[currentMonth] && STATE.duties[currentMonth][day] ? [{ person: STATE.duties[currentMonth][day], shift: 'ДС' }] : [];
+                const tech = (STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][day])) ? STATE.techDuties[currentMonth][day] : [];
+                const general = (STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][day])) ? STATE.generalSchedule[currentMonth][day] : [];
+
+                const sections = [
+                    { title: 'График дежурств', data: duty },
+                    { title: 'График техников', data: tech },
+                    { title: 'Общий график', data: general }
+                ];
+                let hasAny = false;
+                sections.forEach(section => {
+                    if (section.data.length > 0) {
+                        hasAny = true;
+                        const h = document.createElement('h5');
+                        h.textContent = section.title;
+                        h.style.margin = '10px 0 5px 0';
+                        h.style.fontWeight = 'bold';
+                        h.style.color = '#00bfff';
+                        body.appendChild(h);
+                        section.data.sort((a,b) => a.person.localeCompare(b.person)).forEach(a => {
+                            const p = document.createElement('p');
+                            const color = this.getColorFor(a.person);
+                            p.style.backgroundColor = color;
+                            p.style.color = this.isLightColor(color) ? '#333' : '#fff';
+                            p.style.borderRadius = '7px';
+                            p.style.padding = '6px 10px';
+                            p.style.margin = '2px 0';
+                            p.textContent = `${a.person}${a.shift ? ' ('+a.shift+')' : ''}`;
+                            body.appendChild(p);
+                        });
+                    }
+                });
+                if (!hasAny) {
                     body.innerHTML = '<p>На этот день нет назначений.</p>';
-                } else {
-                    uniqueAssignments.sort((a,b) => a.person.localeCompare(b.person));
-                    uniqueAssignments.forEach(a => {
-                        const p = document.createElement('p');
-                        const color = this.getColorFor(a.person);
-                        p.style.backgroundColor = color;
-                        p.style.color = this.isLightColor(color) ? '#333' : '#fff';
-                        p.textContent = `${a.person} (${a.shift})`;
-                        body.appendChild(p);
-                    });
                 }
                 this.openModal('view');
             };
@@ -1443,6 +1691,11 @@
                 const overlay = this[`${type}ModalOverlay`]; // Use stored reference
                 if (overlay) overlay.classList.add('show');
                 document.querySelector(`.day-cell[data-day='${STATE.currentSelectedDay}']`)?.classList.add('selected-for-modal');
+                // Кнопка закрытия всегда видна
+                if (type === 'edit') {
+                    const closeBtn = overlay.querySelector('.modal-close');
+                    if (closeBtn) closeBtn.style.display = '';
+                }
             };
 
             VIEW.closeModal = function() {
@@ -1478,18 +1731,6 @@
 
             VIEW.closeSummaryModal = function() {
                 if (this.summaryModalOverlay) this.summaryModalOverlay.classList.remove('show');
-            };
-
-            // New Firebase settings rendering
-            VIEW.renderFirebaseSettings = function() {
-                if (!this.receivedFirebaseConfig || !this.receivedFirebaseToken) {
-                    console.error("Firebase settings elements not found for rendering.");
-                    return;
-                }
-
-                // Display received global variables (for debugging)
-                this.receivedFirebaseConfig.textContent = typeof __firebase_config !== 'undefined' && __firebase_config ? __firebase_config : 'Не получено';
-                this.receivedFirebaseToken.textContent = typeof __initial_auth_token !== 'undefined' && __initial_auth_token ? __initial_auth_token.substring(0, 50) + '...' : 'Не получено'; // Truncate for display
             };
 
             // --- Утилиты ---
@@ -1532,12 +1773,7 @@
             const CONTROLLER = {
                 init() {
                     document.body.addEventListener('click', this.globalClickListener.bind(this));
-                    // Use stored reference for monthSelector
-                    if (VIEW.monthSelector) {
-                        VIEW.monthSelector.addEventListener('change', e => {
-                            SERVICE.changeMonth(e.target.value);
-                        });
-                    }
+                    // monthSelector и yearSelector больше не нужны, всё через кастомные dropdown
                 },
 
                 globalClickListener(e) {
@@ -1598,6 +1834,95 @@
             document.addEventListener('DOMContentLoaded', () => {
                 SERVICE.init();
             });
+
+            SERVICE.changeYear = function(newYear) {
+                STATE.year = parseInt(newYear, 10);
+                SERVICE.setupFirestoreListeners();
+                VIEW.renderAll();
+                VIEW.renderMonthSelector();
+            };
+
+            // --- ДОБАВЛЯЮ предупреждение при попытке добавить сотрудника, уже назначенного в другом графике ---
+            SERVICE.addAssignment = async function(person, shift, calendarType) {
+                const { currentMonth, currentSelectedDay: day } = STATE;
+                const dayKey = day.toString();
+                const scheduleKey = calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
+                let assignments = STATE[scheduleKey][currentMonth][dayKey] || [];
+                const newAssignment = { person, shift };
+                const alreadyAssigned =
+                    (STATE.duties[currentMonth] && STATE.duties[currentMonth][dayKey] === person) ||
+                    (STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][dayKey]) && STATE.techDuties[currentMonth][dayKey].some(a => a.person === person)) ||
+                    (STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][dayKey]) && STATE.generalSchedule[currentMonth][dayKey].some(a => a.person === person));
+
+                // --- Новый блок: предупреждение, если человек уже назначен в другом графике ---
+                let assignedElsewhere = false;
+                if (calendarType !== 'duty' && STATE.duties[currentMonth] && STATE.duties[currentMonth][dayKey] === person) assignedElsewhere = true;
+                if (calendarType !== 'technician' && STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][dayKey]) && STATE.techDuties[currentMonth][dayKey].some(a => a.person === person)) assignedElsewhere = true;
+                if (calendarType !== 'general' && STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][dayKey]) && STATE.generalSchedule[currentMonth][dayKey].some(a => a.person === person)) assignedElsewhere = true;
+                if (assignedElsewhere) {
+                    const confirmed = await VIEW.showConfirmModal(`${person} уже назначен в другом графике на этот день. Добавить всё равно?`);
+                    if (!confirmed) return;
+                }
+
+                // --- Новый блок: удаляем человека из всех графиков на этот день перед добавлением ---
+                if (STATE.duties[currentMonth] && STATE.duties[currentMonth][dayKey] === person) {
+                    delete STATE.duties[currentMonth][dayKey];
+                }
+                if (STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][dayKey])) {
+                    STATE.techDuties[currentMonth][dayKey] = STATE.techDuties[currentMonth][dayKey].filter(a => a.person !== person);
+                    if (STATE.techDuties[currentMonth][dayKey].length === 0) delete STATE.techDuties[currentMonth][dayKey];
+                }
+                if (STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][dayKey])) {
+                    STATE.generalSchedule[currentMonth][dayKey] = STATE.generalSchedule[currentMonth][dayKey].filter(a => a.person !== person);
+                    if (STATE.generalSchedule[currentMonth][dayKey].length === 0) delete STATE.generalSchedule[currentMonth][dayKey];
+                }
+                // --- Конец блока удаления из всех графиков ---
+
+                if (assignments.some(a => a.person === person && a.shift === shift)) {
+                    VIEW.showNotification('Такое назначение уже существует.', 'info');
+                    return;
+                }
+
+                assignments = assignments.filter(a => a.person !== person); // ещё раз для текущего графика
+                assignments.push(newAssignment);
+                assignments.sort((a, b) => a.person.localeCompare(b.person));
+                STATE[scheduleKey][currentMonth][dayKey] = assignments;
+
+                this.syncSchedules('add', newAssignment, calendarType);
+
+                STATE.hasUnsavedChanges = true;
+                VIEW.renderAssignmentModalList(calendarType);
+                VIEW.renderAll(); 
+                VIEW.showNotification('Назначение добавлено!', 'success');
+            };
+
+            // --- ДОБАВЛЯЮ мгновенную валидацию Telegram ID ---
+            document.addEventListener('DOMContentLoaded', () => {
+                const idInput = document.querySelector('#newOfficerTelegramId');
+                const addBtn = document.querySelector('[data-action="addPerson"]');
+                if (idInput && addBtn) {
+                    idInput.addEventListener('input', () => {
+                        // Оставляем только цифры
+                        idInput.value = idInput.value.replace(/\D/g, '');
+                        // Если поле пустое или не цифры — ошибка
+                        if (!/^\d+$/.test(idInput.value) || idInput.value.length < 6) {
+                            idInput.style.borderColor = '#dc2626';
+                            addBtn.disabled = true;
+                        } else {
+                            idInput.style.borderColor = '';
+                            addBtn.disabled = false;
+                        }
+                    });
+                }
+            });
+
+            // --- Проверка: если выбран техник или работяга и смена 'ДС', запрещаем ---
+            const isTechnician = TECHNICIANS_GROUP.includes(person);
+            const isWorker = Object.values(STATE.users).some(u => u.name === person && u.role === 'worker');
+            if (shift === 'ДС' && (isTechnician || isWorker)) {
+                VIEW.showNotification('Только офицер может быть назначен на смену ДС!', 'error');
+                return;
+            }
 
         })(); // Конец IIFE
     </script>
@@ -1680,21 +2005,101 @@
             font-weight: 300;
         }
 
-        .month-selector {
-            background: rgba(255,255,255,0.1);
-            border: 2px solid rgba(255,255,255,0.2);
+        .month-year-selectors {
+            background: rgba(255,255,255,0.04);
             border-radius: 12px;
-            padding: 10px 15px;
-            color: var(--text-light);
-            font-size: 14px;
-            cursor: pointer;
-            width: 100%;
-            max-width: 250px;
+            padding: 4px 8px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
-
-        .month-selector option {
-            background: var(--bg-container);
+        .custom-dropdown {
+            position: relative;
+            min-width: 90px;
+            max-width: 140px;
+            font-size: 15px;
+            user-select: none;
+        }
+        .dropdown-selected {
+            background: var(--bg-element);
+            border: 2px solid var(--border-main);
+            border-radius: 10px;
+            padding: 8px 32px 8px 12px;
             color: var(--text-light);
+            cursor: pointer;
+            position: relative;
+            transition: border 0.2s;
+            min-width: 90px;
+            max-width: 140px;
+            display: flex;
+            align-items: center;
+        }
+        .dropdown-selected:after {
+            content: '';
+            display: block;
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            width: 16px;
+            height: 16px;
+            pointer-events: none;
+            transform: translateY(-50%);
+            background-image: url('data:image/svg+xml;utf8,<svg fill="%23cccccc" height="16" viewBox="0 0 20 20" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M7.293 7.293a1 1 0 011.414 0L10 8.586l1.293-1.293a1 1 0 111.414 1.414l-2 2a1 1 0 01-1.414 0l-2-2a1 1 0 010-1.414z"/></svg>');
+            background-size: 16px 16px;
+            background-repeat: no-repeat;
+        }
+        .dropdown-list {
+            display: none;
+            position: absolute;
+            left: 0;
+            top: 110%;
+            z-index: 100;
+            background: var(--bg-element);
+            border: 2px solid var(--border-main);
+            border-radius: 10px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+            min-width: 100%;
+            max-height: 220px;
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+        .dropdown-list.show {
+            display: block;
+            animation: fadeIn 0.15s;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .dropdown-item {
+            padding: 8px 18px 8px 18px;
+            color: var(--text-light);
+            cursor: pointer;
+            font-size: 15px;
+            border: none;
+            background: none;
+            transition: background 0.15s, color 0.15s;
+        }
+        .dropdown-item.selected {
+            background: var(--bg-accent);
+            color: #fff;
+            font-weight: bold;
+        }
+        .dropdown-item:hover {
+            background: var(--bg-weekend);
+            color: #fff;
+        }
+        @media (max-width: 480px) {
+            .custom-dropdown, .dropdown-selected {
+                font-size: 12px;
+                min-width: 70px;
+                max-width: 90px;
+            }
+            .dropdown-item {
+                font-size: 12px;
+                padding: 7px 10px 7px 10px;
+            }
         }
 
         /* Кнопки */
@@ -1836,10 +2241,52 @@
         }
         .day-entries-container {
             display: flex;
-            flex-direction: column;
-            gap: 3px;
+            flex-wrap: wrap;
+            gap: 4px;
+            justify-content: center;
+            align-items: flex-start;
             flex-grow: 1;
             overflow: hidden;
+        }
+        .avatar-initials.avatar-grid {
+            width: 36px;
+            height: 36px;
+            min-width: 36px;
+            min-height: 36px;
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            font-weight: bold;
+            margin: 2px 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            line-height: 1.1;
+            text-align: center;
+        }
+        .avatar-letters {
+            font-size: 15px;
+            font-weight: bold;
+            line-height: 1;
+        }
+        .avatar-shift {
+            font-size: 11px;
+            font-weight: 500;
+            opacity: 0.85;
+            margin-top: 2px;
+            line-height: 1;
+        }
+        @media (max-width: 768px) {
+            .avatar-initials.avatar-grid {
+                width: 26px;
+                height: 26px;
+                min-width: 26px;
+                min-height: 26px;
+                font-size: 10px;
+            }
+            .avatar-letters { font-size: 11px; }
+            .avatar-shift { font-size: 8px; }
         }
         .day-entry {
             font-size: 10px;
@@ -1851,6 +2298,9 @@
             border-radius: 4px;
             text-align: center;
             font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
         .day-entry .shift-type {
             font-size: 8px;
@@ -2137,6 +2587,13 @@
             .current-officer-item .delete-officer-btn {
                 margin-left: auto; /* Push to the right */
             }
+            .avatar-initials {
+                width: 22px;
+                height: 22px;
+                min-width: 22px;
+                min-height: 22px;
+                font-size: 10px;
+            }
         }
 
         /* Дополнительные стили для очень маленьких экранов */
@@ -2154,6 +2611,13 @@
             .calendar-grid {
                 gap: 1px; /* Reduced gap */
             }
+            .avatar-initials {
+                width: 16px;
+                height: 16px;
+                min-width: 16px;
+                min-height: 16px;
+                font-size: 7px;
+            }
         }
 
         @media (max-width: 375px) {
@@ -2170,46 +2634,6 @@
             .calendar-grid {
                 gap: 0px; /* No gap */
             }
-        }
-
-        /* Firebase Settings Section Specific Styles */
-        .firebase-settings-controls {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        .firebase-settings-controls label {
-            font-weight: 500;
-            margin-top: 5px;
-        }
-        .firebase-settings-controls textarea,
-        .firebase-settings-controls input[type="text"] {
-            padding: 10px 15px;
-            border-radius: 8px;
-            border: 1px solid var(--border-main);
-            background: var(--bg-element);
-            color: var(--text-main);
-            font-family: 'monospace';
-            font-size: 0.9em;
-        }
-        .firebase-settings-controls .btn--save {
-            margin-top: 10px;
-        }
-        .debug-info {
-            background: var(--bg-element-hover);
-            border: 1px solid var(--border-main);
-            border-radius: 8px;
-            padding: 10px;
-            margin-top: 15px;
-            font-size: 0.85em;
-            word-break: break-all;
-        }
-        .debug-info p {
-            margin-bottom: 5px;
-        }
-        .debug-info span {
-            font-weight: bold;
-            color: var(--border-accent);
         }
     </style>
 </head>
