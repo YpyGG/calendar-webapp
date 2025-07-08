@@ -57,6 +57,11 @@
                         confirmBtn: '#confirmModalConfirmBtn',
                         cancelBtn: '#confirmModalCancelBtn',
                     },
+                    summaryModal: { // New modal for summary
+                        overlay: '#summaryModalOverlay',
+                        title: '#summaryModalTitle',
+                        body: '#summaryModalBody',
+                    }
                 },
                 STORAGE_KEYS: { // These are now Firestore collection/document names
                     USERS_COLLECTION: 'users',
@@ -119,10 +124,10 @@
                     VIEW.showLoadingIndicator();
                     this.initTelegram(); // Initialize Telegram Web App first to get user info
                     this.initFirebase(); // Initialize Firebase
-                    await this.authenticateFirebase(); // Authenticate with Firebase
+                    await this.authenticateFirebase();
 
                     if (!STATE.currentUserId) {
-                        VIEW.renderUnauthorized();
+                        VIEW.renderUnauthorized(); // Render unauthorized if Firebase auth fails
                         VIEW.hideLoadingIndicator();
                         return;
                     }
@@ -136,9 +141,13 @@
                         return;
                     }
 
+                    // Render the main app shell and initialize DOM element references
+                    VIEW.renderAppShell();
+                    VIEW.initAppElements(); // Get references to all dynamically created elements
+                    
                     this.setupFirestoreListeners(); // Set up real-time listeners for calendar data
-                    VIEW.init();
                     CONTROLLER.init();
+                    VIEW.renderAll(); // Render initial data into the app shell
                     VIEW.hideLoadingIndicator();
                     console.log("Application Initialized for user:", STATE.telegramUser, "with role:", STATE.userRole, "Firebase UID:", STATE.currentUserId);
                 },
@@ -334,7 +343,7 @@
                     if (STATE.hasUnsavedChanges) {
                         const confirmed = await VIEW.showConfirmModal('У вас есть несохраненные изменения. Вы уверены, что хотите продолжить без сохранения?');
                         if (!confirmed) {
-                            document.querySelector(CONFIG.DOM_SELECTORS.monthSelector).value = STATE.currentMonth;
+                            VIEW.monthSelector.value = STATE.currentMonth;
                             return;
                         }
                     }
@@ -497,7 +506,7 @@
                     const isPersonOfficer = STATE.officers.includes(person);
                     const isPersonTechnician = STATE.technicians.includes(person);
 
-                    const updateSchedule = (schedule, key, assign, add) => {
+                    const update = (schedule, key, assign, add) => {
                         const current = schedule[currentMonth][key] || [];
                         let filtered = current.filter(a => !(a.person === assign.person && a.shift === assign.shift));
                         if (add) {
@@ -509,7 +518,7 @@
                     };
 
                     if (sourceCalendar === 'technician') {
-                        updateSchedule(STATE.generalSchedule, dayKey, assignment, actionType === 'add');
+                        update(STATE.generalSchedule, dayKey, assignment, actionType === 'add');
                     } else if (sourceCalendar === 'general') {
                         if (shift === 'ДС' && isPersonOfficer) {
                             if (actionType === 'add') STATE.duties[currentMonth][dayKey] = person;
@@ -517,7 +526,7 @@
                         }
                         // Engineers are technicians, so if "ДС" is assigned to an engineer, it should appear in tech schedule
                         if (isPersonTechnician && (shift === '8' || shift === 'ДС')) {
-                            updateSchedule(STATE.techDuties, dayKey, assignment, actionType === 'add');
+                            update(STATE.techDuties, dayKey, assignment, actionType === 'add');
                         }
                     }
                 },
@@ -552,8 +561,8 @@
                     try {
                         await setDoc(doc(usersRef, newId), { name: name, role: 'worker' }); // Default to worker
                         VIEW.showNotification(`Сотрудник ${name} добавлен!`, 'success');
-                        document.querySelector(CONFIG.DOM_SELECTORS.newOfficerName).value = '';
-                        document.querySelector(CONFIG.DOM_SELECTORS.newOfficerTelegramId).value = ''; // Clear new ID input
+                        VIEW.newOfficerNameInput.value = '';
+                        VIEW.newOfficerTelegramIdInput.value = ''; // Clear new ID input
                     } catch (e) {
                         console.error("Error adding person to Firestore:", e);
                         VIEW.showNotification("Ошибка добавления сотрудника.", "error");
@@ -662,6 +671,92 @@
                         this.setupFirestoreListeners(); // Revert to Firestore state
                         VIEW.showNotification('Изменения отменены.', 'info');
                     }
+                },
+
+                // --- Gemini API Integration ---
+                async generateMonthSummary() {
+                    VIEW.showLoadingIndicator();
+                    try {
+                        const monthName = new Date(STATE.year, STATE.currentMonth).toLocaleString('ru-RU', { month: 'long' });
+                        const fullMonthName = `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} ${STATE.year}`;
+
+                        let prompt = `Я предоставляю данные о расписании дежурств за ${fullMonthName}. Пожалуйста, сгенерируйте краткую, но информативную сводку, которая включает:\n`;
+                        prompt += `1. Общее количество дежурств/смен для каждого сотрудника за месяц.\n`;
+                        prompt += `2. Дни, которые кажутся наиболее загруженными (например, с большим количеством назначений).\n`;
+                        prompt += `3. Любые интересные закономерности или наблюдения (например, кто дежурил чаще всего, кто имел много выходных).\n\n`;
+                        prompt += `Формат данных:\n`;
+                        prompt += `График дежурств:\n[День]: [Имя сотрудника] (если есть)\n\n`;
+                        prompt += `График техников:\n[День]: [Имя сотрудника] ([Тип смены]), [Имя сотрудника] ([Тип смены]), ...\n\n`;
+                        prompt += `Общий график:\n[День]: [Имя сотрудника] ([Тип смены]), [Имя сотрудника] ([Тип смены]), ...\n\n`;
+                        prompt += `Данные для ${fullMonthName}:\n`;
+
+                        // Add Duty Schedule data
+                        prompt += `График дежурств:\n`;
+                        const duties = STATE.duties[STATE.currentMonth] || {};
+                        if (Object.keys(duties).length > 0) {
+                            Object.keys(duties).sort((a,b) => parseInt(a) - parseInt(b)).forEach(day => {
+                                prompt += `${day}: ${duties[day]}\n`;
+                            });
+                        } else {
+                            prompt += `Нет данных.\n`;
+                        }
+
+                        // Add Technician Schedule data
+                        prompt += `\nГрафик техников:\n`;
+                        const techDuties = STATE.techDuties[STATE.currentMonth] || {};
+                        if (Object.keys(techDuties).length > 0) {
+                            Object.keys(techDuties).sort((a,b) => parseInt(a) - parseInt(b)).forEach(day => {
+                                const assignments = techDuties[day].map(a => `${a.person} (${a.shift})`).join(', ');
+                                prompt += `${day}: ${assignments}\n`;
+                            });
+                        } else {
+                            prompt += `Нет данных.\n`;
+                        }
+
+                        // Add General Schedule data
+                        prompt += `\nОбщий график:\n`;
+                        const generalSchedule = STATE.generalSchedule[STATE.currentMonth] || {};
+                        if (Object.keys(generalSchedule).length > 0) {
+                            Object.keys(generalSchedule).sort((a,b) => parseInt(a) - parseInt(b)).forEach(day => {
+                                const assignments = generalSchedule[day].map(a => `${a.person} (${a.shift})`).join(', ');
+                                prompt += `${day}: ${assignments}\n`;
+                            });
+                        } else {
+                            prompt += `Нет данных.\n`;
+                        }
+
+                        prompt += `\nСводка должна быть на русском языке.`;
+
+                        console.log("Sending prompt to LLM:", prompt);
+
+                        let chatHistory = [];
+                        chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+                        const payload = { contents: chatHistory };
+                        const apiKey = ""; // If you want to use models other than gemini-2.0-flash or imagen-3.0-generate-002, provide an API key here. Otherwise, leave this as-is.
+                        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                        
+                        const response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        const result = await response.json();
+
+                        if (result.candidates && result.candidates.length > 0 &&
+                            result.candidates[0].content && result.candidates[0].content.parts &&
+                            result.candidates[0].content.parts.length > 0) {
+                            const summaryText = result.candidates[0].content.parts[0].text;
+                            VIEW.showSummaryModal(summaryText, fullMonthName);
+                        } else {
+                            VIEW.showNotification('Не удалось сгенерировать сводку. Попробуйте еще раз.', 'error');
+                            console.error("LLM response structure unexpected:", result);
+                        }
+                    } catch (e) {
+                        console.error("Error calling Gemini API:", e);
+                        VIEW.showNotification('Ошибка при обращении к Gemini API.', 'error');
+                    } finally {
+                        VIEW.hideLoadingIndicator();
+                    }
                 }
             };
 
@@ -669,15 +764,50 @@
              * VIEW: Отвечает за все манипуляции с DOM. Только читает из STATE.
              */
             const VIEW = {
+                // DOM elements references, initialized after renderAppShell
+                monthSelector: null,
+                newOfficerNameInput: null,
+                newOfficerTelegramIdInput: null,
+                dutyCalendarGrid: null,
+                technicianCalendarGrid: null,
+                generalCalendarGrid: null,
+                statsList: null,
+                currentOfficersList: null,
+                actionButtonsWrapper: null,
+                tabNavigation: null,
+                loadingIndicator: null,
+                editModalOverlay: null,
+                editModalTitle: null,
+                editModalBody: null,
+                viewModalOverlay: null,
+                viewModalTitle: null,
+                viewModalBody: null,
+                confirmModalOverlay: null,
+                confirmModalMessage: null,
+                confirmModalConfirmBtn: null,
+                confirmModalCancelBtn: null,
+                toggleEditModeBtn: null,
+                statisticsSection: null,
+                managementSection: null,
+                summaryModalOverlay: null, // New
+                summaryModalTitle: null,   // New
+                summaryModalBody: null,    // New
+
                 init() {
-                    this.renderAppShell();
-                    this.renderAll();
+                    // This function is now called AFTER renderAppShell has run in SERVICE.init()
+                    // It's responsible for getting references to the DOM elements.
+                    this.initAppElements();
+                    this.renderAll(); // Initial render of data into the shell
                 },
                 
                 renderAppShell() {
                     const container = document.querySelector(CONFIG.DOM_SELECTORS.container);
+                    // Ensure container exists before setting innerHTML
+                    if (!container) {
+                        console.error("Error: App container not found. Cannot render app shell.");
+                        return;
+                    }
                     container.innerHTML = `
-                        <div id="loadingIndicator" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; color: white; font-size: 1.5em; z-index: 9999;">Загрузка...</div>
                         <header class="header">
                             <div class="user-info" id="userInfo"></div>
                             <h1>Календарь дежурств</h1>
@@ -704,6 +834,7 @@
                             <div class="section-container hidden-section" id="statisticsSection">
                                 <h3>Статистика дежурств</h3>
                                 <div class="stats-list" id="statsList"></div>
+                                <button class="btn btn--blue" style="margin-top: 15px;" data-action="generateMonthSummary">✨ Сгенерировать сводку за месяц</button>
                             </div>
                             <button class="btn btn--toggle" data-action="toggleSection" data-target="managementSection" style="margin-top: 10px;">Управление</button>
                             <div class="section-container hidden-section" id="managementSection">
@@ -716,21 +847,104 @@
                                 <div class="current-officers-list" id="currentOfficersList"></div>
                             </div>
                         </main>`;
-                    this.renderUserInfo();
+                    this.renderUserInfo(); // Render user info immediately after shell is created
+                },
+
+                initAppElements() {
+                    // Get all static and dynamic elements once the app shell is rendered
+                    this.monthSelector = document.querySelector(CONFIG.DOM_SELECTORS.monthSelector);
+                    if (!this.monthSelector) console.error("Element not found:", CONFIG.DOM_SELECTORS.monthSelector);
+
+                    this.newOfficerNameInput = document.querySelector(CONFIG.DOM_SELECTORS.newOfficerName);
+                    if (!this.newOfficerNameInput) console.error("Element not found:", CONFIG.DOM_SELECTORS.newOfficerName);
+
+                    this.newOfficerTelegramIdInput = document.querySelector(CONFIG.DOM_SELECTORS.newOfficerTelegramId);
+                    if (!this.newOfficerTelegramIdInput) console.error("Element not found:", CONFIG.DOM_SELECTORS.newOfficerTelegramId);
+
+                    this.dutyCalendarGrid = document.querySelector(CONFIG.DOM_SELECTORS.dutyCalendarGrid);
+                    if (!this.dutyCalendarGrid) console.error("Element not found:", CONFIG.DOM_SELECTORS.dutyCalendarGrid);
+
+                    this.technicianCalendarGrid = document.querySelector(CONFIG.DOM_SELECTORS.technicianCalendarGrid);
+                    if (!this.technicianCalendarGrid) console.error("Element not found:", CONFIG.DOM_SELECTORS.technicianCalendarGrid);
+
+                    this.generalCalendarGrid = document.querySelector(CONFIG.DOM_SELECTORS.generalCalendarGrid);
+                    if (!this.generalCalendarGrid) console.error("Element not found:", CONFIG.DOM_SELECTORS.generalCalendarGrid);
+
+                    this.statsList = document.querySelector(CONFIG.DOM_SELECTORS.statsList);
+                    if (!this.statsList) console.error("Element not found:", CONFIG.DOM_SELECTORS.statsList);
+
+                    this.currentOfficersList = document.querySelector(CONFIG.DOM_SELECTORS.currentOfficersList);
+                    if (!this.currentOfficersList) console.error("Element not found:", CONFIG.DOM_SELECTORS.currentOfficersList);
+
+                    this.actionButtonsWrapper = document.querySelector(CONFIG.DOM_SELECTORS.actionButtons);
+                    if (!this.actionButtonsWrapper) console.error("Element not found:", CONFIG.DOM_SELECTORS.actionButtons);
+
+                    this.tabNavigation = document.querySelector(CONFIG.DOM_SELECTORS.tabNavigation);
+                    if (!this.tabNavigation) console.error("Element not found:", CONFIG.DOM_SELECTORS.tabNavigation);
+
+                    this.loadingIndicator = document.querySelector(CONFIG.DOM_SELECTORS.loadingIndicator);
+                    if (!this.loadingIndicator) console.error("Element not found:", CONFIG.DOM_SELECTORS.loadingIndicator);
+
+                    this.editModalOverlay = document.querySelector(CONFIG.DOM_SELECTORS.editModal.overlay);
+                    if (!this.editModalOverlay) console.error("Element not found:", CONFIG.DOM_SELECTORS.editModal.overlay);
+
+                    this.editModalTitle = document.querySelector(CONFIG.DOM_SELECTORS.editModal.title);
+                    if (!this.editModalTitle) console.error("Element not found:", CONFIG.DOM_SELECTORS.editModal.title);
+
+                    this.editModalBody = document.querySelector(CONFIG.DOM_SELECTORS.editModal.body);
+                    if (!this.editModalBody) console.error("Element not found:", CONFIG.DOM_SELECTORS.editModal.body);
+
+                    this.viewModalOverlay = document.querySelector(CONFIG.DOM_SELECTORS.viewModal.overlay);
+                    if (!this.viewModalOverlay) console.error("Element not found:", CONFIG.DOM_SELECTORS.viewModal.overlay);
+
+                    this.viewModalTitle = document.querySelector(CONFIG.DOM_SELECTORS.viewModal.title);
+                    if (!this.viewModalTitle) console.error("Element not found:", CONFIG.DOM_SELECTORS.viewModal.title);
+
+                    this.viewModalBody = document.querySelector(CONFIG.DOM_SELECTORS.viewModal.body);
+                    if (!this.viewModalBody) console.error("Element not found:", CONFIG.DOM_SELECTORS.viewModal.body);
+
+                    this.confirmModalOverlay = document.querySelector(CONFIG.DOM_SELECTORS.confirmModal.overlay);
+                    if (!this.confirmModalOverlay) console.error("Element not found:", CONFIG.DOM_SELECTORS.confirmModal.overlay);
+
+                    this.confirmModalMessage = document.querySelector(CONFIG.DOM_SELECTORS.confirmModal.message);
+                    if (!this.confirmModalMessage) console.error("Element not found:", CONFIG.DOM_SELECTORS.confirmModal.message);
+
+                    this.confirmModalConfirmBtn = document.querySelector(CONFIG.DOM_SELECTORS.confirmModal.confirmBtn);
+                    if (!this.confirmModalConfirmBtn) console.error("Element not found:", CONFIG.DOM_SELECTORS.confirmModal.confirmBtn);
+
+                    this.confirmModalCancelBtn = document.querySelector(CONFIG.DOM_SELECTORS.confirmModal.cancelBtn);
+                    if (!this.confirmModalCancelBtn) console.error("Element not found:", CONFIG.DOM_SELECTORS.confirmModal.cancelBtn);
+
+                    this.toggleEditModeBtn = document.getElementById('toggleEditModeBtn'); // Get by ID
+                    if (!this.toggleEditModeBtn) console.error("Element not found: #toggleEditModeBtn");
+
+                    this.statisticsSection = document.getElementById('statisticsSection');
+                    if (!this.statisticsSection) console.error("Element not found: #statisticsSection");
+
+                    this.managementSection = document.getElementById('managementSection');
+                    if (!this.managementSection) console.error("Element not found: #managementSection");
+
+                    this.summaryModalOverlay = document.getElementById('summaryModalOverlay'); // New
+                    if (!this.summaryModalOverlay) console.error("Element not found: #summaryModalOverlay");
+
+                    this.summaryModalTitle = document.getElementById('summaryModalTitle');     // New
+                    if (!this.summaryModalTitle) console.error("Element not found: #summaryModalTitle");
+
+                    this.summaryModalBody = document.getElementById('summaryModalBody');       // New
+                    if (!this.summaryModalBody) console.error("Element not found: #summaryModalBody");
                 },
 
                 showLoadingIndicator() {
-                    const indicator = document.querySelector(CONFIG.DOM_SELECTORS.loadingIndicator);
-                    if (indicator) indicator.style.display = 'flex';
+                    // Ensure the indicator element is in the initial HTML or created before this is called
+                    if (this.loadingIndicator) this.loadingIndicator.style.display = 'flex';
                 },
 
                 hideLoadingIndicator() {
-                    const indicator = document.querySelector(CONFIG.DOM_SELECTORS.loadingIndicator);
-                    if (indicator) indicator.style.display = 'none';
+                    if (this.loadingIndicator) this.loadingIndicator.style.display = 'none';
                 },
 
                 renderUserInfo() {
-                    const userInfoContainer = document.getElementById('userInfo');
+                    const userInfoContainer = document.getElementById('userInfo'); // This element is part of the shell
                     if (userInfoContainer) {
                         const { first_name, username } = STATE.telegramUser;
                         const roleText = CONFIG.ROLE_NAMES[STATE.userRole] || 'Неизвестно';
@@ -740,8 +954,11 @@
 
                 renderUnauthorized() {
                     const container = document.querySelector(CONFIG.DOM_SELECTORS.container);
+                    if (!container) {
+                        console.error("Error: App container not found for unauthorized view.");
+                        return;
+                    }
                     container.innerHTML = `
-                        <div id="loadingIndicator" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; color: white; font-size: 1.5em; z-index: 9999;">Загрузка...</div>
                         <div class="unauthorized">
                             <h1>Доступ ограничен</h1>
                             <p>Ваша заявка на доступ ожидает одобрения администратором.</p>
@@ -766,7 +983,8 @@
                 },
                 
                 renderMonthSelector() {
-                    const selector = document.querySelector(CONFIG.DOM_SELECTORS.monthSelector);
+                    const selector = this.monthSelector; // Use stored reference
+                    if (!selector) return; // Defensive check
                     selector.innerHTML = '';
                     for (let i = 0; i < 12; i++) {
                         const monthName = new Date(STATE.year, i).toLocaleString('ru-RU', { month: 'long' });
@@ -779,15 +997,18 @@
                 },
 
                 renderTabsAndButtons() {
-                    document.querySelectorAll('#tabNavigation .tab-button').forEach(btn => {
-                        btn.classList.toggle('active', btn.dataset.tab === STATE.activeTab);
-                    });
+                    // Use stored references
+                    if (this.tabNavigation) {
+                        this.tabNavigation.querySelectorAll('.tab-button').forEach(btn => {
+                            btn.classList.toggle('active', btn.dataset.tab === STATE.activeTab);
+                        });
+                    }
                     document.querySelectorAll('.tab-content').forEach(content => {
                         content.classList.toggle('active', content.id === `${STATE.activeTab}Tab`);
                     });
 
                     // Edit mode button visibility and text
-                    const editBtn = document.getElementById('toggleEditModeBtn');
+                    const editBtn = this.toggleEditModeBtn; // Use stored reference
                     if (editBtn) {
                         editBtn.textContent = STATE.isEditMode ? 'Завершить' : 'Редактировать';
                         editBtn.classList.toggle('btn--cancel', STATE.isEditMode);
@@ -796,7 +1017,7 @@
                     }
 
                     // Action buttons visibility (save/cancel/clear)
-                    const actionButtonsWrapper = document.querySelector(CONFIG.DOM_SELECTORS.actionButtons);
+                    const actionButtonsWrapper = this.actionButtonsWrapper; // Use stored reference
                     if (actionButtonsWrapper) {
                         actionButtonsWrapper.classList.toggle('hidden', !STATE.isEditMode);
                         actionButtonsWrapper.querySelectorAll('.btn--save').forEach(btn => {
@@ -808,18 +1029,18 @@
                     }
 
                     // Management controls (add/delete person)
-                    const managementSection = document.getElementById('managementSection');
+                    const managementSection = this.managementSection; // Use stored reference
                     if (managementSection) {
                         managementSection.classList.toggle('hidden-section', STATE.userRole !== 'admin'); // Hide management section for non-admins
                         const addPersonBtn = managementSection.querySelector('[data-action="addPerson"]');
                         if (addPersonBtn) addPersonBtn.disabled = STATE.userRole !== 'admin';
-                        document.querySelector(CONFIG.DOM_SELECTORS.newOfficerName).disabled = STATE.userRole !== 'admin';
-                        document.querySelector(CONFIG.DOM_SELECTORS.newOfficerTelegramId).disabled = STATE.userRole !== 'admin';
+                        if (this.newOfficerNameInput) this.newOfficerNameInput.disabled = STATE.userRole !== 'admin';
+                        if (this.newOfficerTelegramIdInput) this.newOfficerTelegramIdInput.disabled = STATE.userRole !== 'admin';
                     }
                 },
 
                 renderCalendar(calendarType) {
-                    const grid = document.querySelector(CONFIG.DOM_SELECTORS[`${calendarType}CalendarGrid`]);
+                    const grid = this[`${calendarType}CalendarGrid`]; // Use stored reference
                     if (!grid) return;
 
                     const dataMap = { duty: STATE.duties, technician: STATE.techDuties, general: STATE.generalSchedule };
@@ -898,7 +1119,8 @@
                     
                     const sortedOfficers = Object.keys(stats).sort((a, b) => stats[b] - stats[a] || a.localeCompare(b));
                     
-                    const statsList = document.querySelector(CONFIG.DOM_SELECTORS.statsList);
+                    const statsList = this.statsList; // Use stored reference
+                    if (!statsList) return; // Defensive check
                     statsList.innerHTML = '';
                     sortedOfficers.forEach(officer => {
                         const item = document.createElement('div');
@@ -911,7 +1133,8 @@
                 },
                 
                 renderManagementList() {
-                    const list = document.querySelector(CONFIG.DOM_SELECTORS.currentOfficersList);
+                    const list = this.currentOfficersList; // Use stored reference
+                    if (!list) return; // Defensive check
                     list.innerHTML = '';
 
                     // Get all users from STATE.users, sorted by name
@@ -970,8 +1193,9 @@
 
                 // --- Модальные окна ---
                 showDutyModal() {
-                    const modal = document.querySelector(CONFIG.DOM_SELECTORS.editModal.body);
-                    document.querySelector(CONFIG.DOM_SELECTORS.editModal.title).textContent = 'Выберите дежурного';
+                    const modal = this.editModalBody; // Use stored reference
+                    if (!modal) return; // Defensive check
+                    this.editModalTitle.textContent = 'Выберите дежурного'; // Use stored reference
                     
                     const currentAssignment = STATE.duties[STATE.currentMonth][STATE.currentSelectedDay];
                     const optionsHTML = [...STATE.officers, CONFIG.NO_DUTY_LABEL].map(name => {
@@ -984,8 +1208,9 @@
                 },
 
                 showAssignmentModal(calendarType) {
-                    const modal = document.querySelector(CONFIG.DOM_SELECTORS.editModal.body);
-                    document.querySelector(CONFIG.DOM_SELECTORS.editModal.title).textContent = `Назначить смену на ${STATE.currentSelectedDay}-е число`;
+                    const modal = this.editModalBody; // Use stored reference
+                    if (!modal) return; // Defensive check
+                    this.editModalTitle.textContent = `Назначить смену на ${STATE.currentSelectedDay}-е число`; // Use stored reference
                     modal.dataset.calendarType = calendarType;
 
                     const people = calendarType === 'technician' ? STATE.technicians : STATE.officers.concat(STATE.technicians).filter((v, i, a) => a.indexOf(v) === i).sort();
@@ -1013,8 +1238,9 @@
                 showEnlargedDayView(day) {
                     const { year, currentMonth } = STATE;
                     const fullDate = new Date(year, currentMonth, day).toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
-                    document.querySelector(CONFIG.DOM_SELECTORS.viewModal.title).textContent = fullDate;
-                    const body = document.querySelector(CONFIG.DOM_SELECTORS.viewModal.body);
+                    this.viewModalTitle.textContent = fullDate; // Use stored reference
+                    const body = this.viewModalBody; // Use stored reference
+                    if (!body) return; // Defensive check
                     body.innerHTML = '';
 
                     // Collect all assignments for this day from all schedules
@@ -1049,7 +1275,7 @@
                 },
                 
                 renderAssignmentModalList(calendarType) {
-                    const list = document.getElementById('assignmentsList');
+                    const list = document.getElementById('assignmentsList'); // This is a child of editModalBody, so it's created dynamically
                     if (!list) return;
                     
                     const keyMap = { technician: 'techDuties', general: 'generalSchedule' };
@@ -1067,13 +1293,14 @@
                 },
 
                 openModal(type) {
-                    document.querySelector(CONFIG.DOM_SELECTORS[type + 'Modal'].overlay).classList.add('show');
+                    const overlay = this[`${type}ModalOverlay`]; // Use stored reference
+                    if (overlay) overlay.classList.add('show');
                     document.querySelector(`.day-cell[data-day='${STATE.currentSelectedDay}']`)?.classList.add('selected-for-modal');
                 },
 
                 closeModal() {
-                    document.querySelector(CONFIG.DOM_SELECTORS.editModal.overlay).classList.remove('show');
-                    document.querySelector(CONFIG.DOM_SELECTORS.viewModal.overlay).classList.remove('show');
+                    if (this.editModalOverlay) this.editModalOverlay.classList.remove('show');
+                    if (this.viewModalOverlay) this.viewModalOverlay.classList.remove('show');
                     const prevSelected = document.querySelector('.day-cell.selected-for-modal');
                     if (prevSelected) prevSelected.classList.remove('selected-for-modal');
                     STATE.currentSelectedDay = null;
@@ -1082,17 +1309,28 @@
                 showConfirmModal(message) {
                     return new Promise(resolve => {
                         STATE.confirmModalResolve = resolve;
-                        document.querySelector(CONFIG.DOM_SELECTORS.confirmModal.message).textContent = message;
-                        document.querySelector(CONFIG.DOM_SELECTORS.confirmModal.overlay).classList.add('show');
+                        if (this.confirmModalMessage) this.confirmModalMessage.textContent = message;
+                        if (this.confirmModalOverlay) this.confirmModalOverlay.classList.add('show');
                     });
                 },
 
                 closeConfirmModal(result) {
-                    document.querySelector(CONFIG.DOM_SELECTORS.confirmModal.overlay).classList.remove('show');
+                    if (this.confirmModalOverlay) this.confirmModalOverlay.classList.remove('show');
                     if (STATE.confirmModalResolve) {
                         STATE.confirmModalResolve(result);
                         STATE.confirmModalResolve = null;
                     }
+                },
+
+                // New summary modal functions
+                showSummaryModal(summaryText, monthYear) {
+                    if (this.summaryModalTitle) this.summaryModalTitle.textContent = `Сводка за ${monthYear}`;
+                    if (this.summaryModalBody) this.summaryModalBody.innerHTML = `<pre style="white-space: pre-wrap; word-wrap: break-word;">${summaryText}</pre>`;
+                    if (this.summaryModalOverlay) this.summaryModalOverlay.classList.add('show');
+                },
+
+                closeSummaryModal() {
+                    if (this.summaryModalOverlay) this.summaryModalOverlay.classList.remove('show');
                 },
 
                 // --- Утилиты ---
@@ -1136,11 +1374,12 @@
             const CONTROLLER = {
                 init() {
                     document.body.addEventListener('click', this.globalClickListener.bind(this));
-                    document.addEventListener('change', e => {
-                        if (e.target.matches(CONFIG.DOM_SELECTORS.monthSelector)) {
+                    // Use stored reference for monthSelector
+                    if (VIEW.monthSelector) {
+                        VIEW.monthSelector.addEventListener('change', e => {
                             SERVICE.changeMonth(e.target.value);
-                        }
-                    });
+                        });
+                    }
                 },
 
                 globalClickListener(e) {
@@ -1169,10 +1408,11 @@
                             case 'clear': SERVICE.clearMonth(); break;
                             case 'cancel': SERVICE.cancelChanges(); break;
                             case 'toggleSection': document.getElementById(actionTarget.dataset.target)?.classList.toggle('hidden-section'); break;
-                            case 'addPerson': SERVICE.addPerson(document.querySelector(CONFIG.DOM_SELECTORS.newOfficerName).value, document.querySelector(CONFIG.DOM_SELECTORS.newOfficerTelegramId).value); break;
+                            case 'addPerson': SERVICE.addPerson(VIEW.newOfficerNameInput.value, VIEW.newOfficerTelegramIdInput.value); break; // Use stored references
                             case 'deletePerson': SERVICE.deletePerson(personIdToDelete); break; // Changed to deletePerson
                             case 'closeModal': VIEW.closeModal(); break;
                             case 'closeConfirmModal': VIEW.closeConfirmModal(false); break;
+                            case 'closeSummaryModal': VIEW.closeSummaryModal(); break; // New
                             case 'selectDuty': SERVICE.assignDuty(name); break;
                             case 'addAssignment': {
                                 const modalBody = target.closest('.modal-body');
@@ -1186,6 +1426,7 @@
                                  SERVICE.deleteAssignment(parseInt(index, 10), modalBody.dataset.calendarType);
                                  break;
                             }
+                            case 'generateMonthSummary': SERVICE.generateMonthSummary(); break; // New
                         }
                     }
                     
@@ -1195,8 +1436,637 @@
             };
 
             // Initial Telegram Web App setup and Firebase authentication
-            SERVICE.init(); // Initialize Telegram Web App first, then Firebase and app
+            document.addEventListener('DOMContentLoaded', () => {
+                SERVICE.init();
+            });
+
         })(); // Конец IIFE
     </script>
+    <style>
+        /* Общие стили */
+        :root {
+            --bg-main: #1a1a2e;
+            --bg-container: #0f3460;
+            --bg-element: #2d3748;
+            --bg-element-hover: #4a5568;
+            --bg-accent: #533483;
+            --bg-weekend: #3d2a45;
+            --text-main: #e0e6ed;
+            --text-light: #ffffff;
+            --border-main: #4a5568;
+            --border-accent: #00bfff;
+            --btn-green: #059669;
+            --btn-green-hover: #047857;
+            --btn-red: #dc2626;
+            --btn-red-hover: #b91c1c;
+            --btn-blue: #2563eb;
+            --btn-blue-hover: #1d4ed8;
+            --shadow-main: rgba(0,0,0,0.3);
+            --shadow-accent: rgba(0, 191, 255, 0.5);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-main);
+            min-height: 100vh;
+            padding: 10px;
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            background: var(--bg-container);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px var(--shadow-main);
+            overflow: hidden;
+        }
+        .unauthorized {
+            text-align: center;
+            padding: 50px;
+        }
+
+        /* Заголовок */
+        .header {
+            background: linear-gradient(135deg, var(--bg-accent) 0%, var(--bg-container) 100%);
+            color: var(--text-light);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            text-align: center;
+        }
+        .user-info {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        .user-info span {
+            font-weight: bold;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            font-weight: 300;
+        }
+
+        .month-selector {
+            background: rgba(255,255,255,0.1);
+            border: 2px solid rgba(255,255,255,0.2);
+            border-radius: 12px;
+            padding: 10px 15px;
+            color: var(--text-light);
+            font-size: 14px;
+            cursor: pointer;
+            width: 100%;
+            max-width: 250px;
+        }
+
+        .month-selector option {
+            background: var(--bg-container);
+            color: var(--text-light);
+        }
+
+        /* Кнопки */
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            min-height: 44px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            color: var(--text-light);
+        }
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .btn--save { background: var(--btn-green); }
+        .btn--save:hover:not(:disabled) { background: var(--btn-green-hover); }
+        .btn--clear { background: var(--btn-red); }
+        .btn--clear:hover:not(:disabled) { background: var(--btn-red-hover); }
+        .btn--cancel { background: var(--bg-element-hover); }
+        .btn--cancel:hover:not(:disabled) { background: var(--bg-element); }
+        .btn--edit-mode, .btn--blue { background: var(--btn-blue); }
+        .btn--edit-mode:hover:not(:disabled), .btn--blue:hover:not(:disabled) { background: var(--btn-blue-hover); }
+        .btn--toggle {
+            background: var(--bg-element);
+            border: 1px solid var(--border-main);
+            box-shadow: none;
+            padding: 8px 15px;
+        }
+        .btn--toggle:hover:not(:disabled) {
+            background: var(--bg-element-hover);
+            transform: none;
+        }
+
+        /* Основное содержимое */
+        .main-content {
+            padding: 20px;
+        }
+
+        .section-container {
+            background: var(--bg-main);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid var(--bg-element);
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .section-container h3 {
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        /* Навигация */
+        .tab-navigation {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .tab-button {
+            background: var(--bg-element-hover);
+            padding: 10px 20px;
+            border-radius: 10px;
+            min-width: 150px;
+            text-align: center;
+        }
+        .tab-button.active {
+            background: linear-gradient(135deg, var(--bg-accent) 0%, var(--bg-container) 100%);
+            border: 2px solid var(--border-accent);
+            box-shadow: 0 0 15px var(--shadow-accent);
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        /* Сетка календаря */
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 2px;
+            background: var(--bg-element);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .day-header {
+            background: var(--bg-element-hover);
+            padding: 12px 8px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        .day-cell {
+            background: var(--bg-element);
+            min-height: 100px;
+            padding: 8px 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            gap: 4px;
+            border: 1px solid var(--border-main);
+            border-radius: 8px;
+        }
+        .day-cell:hover:not(.empty) {
+            background: var(--bg-element-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px var(--shadow-main);
+        }
+        .day-cell.weekend { background: var(--bg-weekend); }
+        .day-cell.weekend:hover:not(.empty) { background: #553c5d; }
+        .day-cell.empty {
+            background: var(--bg-main);
+            cursor: default;
+            box-shadow: none;
+            transform: none;
+        }
+        .day-cell.current-day {
+            border: 2px solid var(--border-accent);
+            box-shadow: 0 0 15px var(--shadow-accent);
+        }
+        .day-cell.selected-for-modal {
+            border: 3px solid var(--border-accent);
+            box-shadow: 0 0 25px rgba(0, 191, 255, 0.9);
+            transform: scale(1.03);
+        }
+        .day-number {
+            font-weight: 600;
+            font-size: 15px;
+        }
+        .day-entries-container {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+        .day-entry {
+            font-size: 10px;
+            padding: 3px 4px;
+            line-height: 1.2;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            border-radius: 4px;
+            text-align: center;
+            font-weight: 500;
+        }
+        .day-entry .shift-type {
+            font-size: 8px;
+            margin-left: 4px;
+            opacity: 0.8;
+        }
+
+        /* Кнопки действий */
+        .action-buttons-wrapper {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .action-buttons-wrapper.hidden {
+            display: none;
+        }
+
+        /* Секции статистики и управления */
+        .hidden-section { display: none; }
+        .stats-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+        .stats-item {
+            background: var(--bg-element);
+            padding: 12px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .stats-name {
+            font-weight: 500;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .stats-count {
+            font-size: 16px;
+            font-weight: 600;
+            background: var(--bg-element-hover);
+            padding: 4px 10px;
+            border-radius: 15px;
+        }
+        .officer-management-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .officer-management-controls input[type="text"] {
+            flex-grow: 1;
+            padding: 10px 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-main);
+            background: var(--bg-element);
+            color: var(--text-main);
+            min-width: 150px;
+        }
+        .current-officers-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 8px;
+        }
+        .current-officer-item {
+            background: var(--bg-element);
+            padding: 10px 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-main);
+            display: flex;
+            flex-wrap: wrap; /* Allow wrapping for smaller screens */
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+            gap: 5px; /* Gap between elements in the item */
+        }
+        .current-officer-item .person-name {
+            font-weight: 500;
+            flex-basis: 100%; /* Take full width on small screens */
+            margin-bottom: 5px;
+        }
+        .current-officer-item .telegram-id {
+            font-size: 0.8em;
+            opacity: 0.7;
+            flex-basis: 100%; /* Take full width on small screens */
+            margin-bottom: 5px;
+        }
+        .current-officer-item .role-selector {
+            padding: 5px 8px;
+            border-radius: 6px;
+            border: 1px solid var(--border-main);
+            background: var(--bg-main);
+            color: var(--text-main);
+            font-size: 0.9em;
+            flex-grow: 1; /* Allow to grow */
+            min-width: 100px; /* Minimum width for selector */
+        }
+        .current-officer-item .delete-officer-btn {
+            background: none;
+            border: none;
+            color: var(--btn-red);
+            font-size: 20px;
+            cursor: pointer;
+            transition: color 0.2s ease;
+            padding: 5px;
+            border-radius: 50%;
+            width: 36px; /* Smaller touch target for delete */
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .current-officer-item .delete-officer-btn:hover:not(:disabled) {
+            color: var(--btn-red-hover);
+            background: rgba(220, 38, 38, 0.2);
+        }
+
+        /* Модальные окна */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+        .modal-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal {
+            background: var(--bg-container);
+            border-radius: 15px;
+            width: 90%;
+            max-width: 450px;
+            border: 1px solid var(--bg-element);
+            box-shadow: 0 10px 20px var(--shadow-main);
+            transform: translateY(-50px);
+            transition: all 0.3s ease;
+        }
+        .modal-overlay.show .modal {
+            transform: translateY(0);
+        }
+        .modal-header {
+            background: linear-gradient(135deg, var(--bg-accent) 0%, var(--bg-container) 100%);
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-header h4 { font-size: 1.2em; font-weight: 500; }
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-light);
+            font-size: 24px;
+            cursor: pointer;
+            border-radius: 50%;
+            width: 44px; height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-close:hover { background: rgba(255,255,255,0.2); }
+        .modal-body { padding: 20px; max-height: 60vh; overflow-y: auto; }
+        
+        /* Содержимое модальных окон */
+        .officer-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .officer-option {
+            padding: 15px;
+            border: 2px solid var(--border-main);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: var(--bg-element);
+            text-align: center;
+        }
+        .officer-option:hover {
+            border-color: var(--bg-accent);
+            background: var(--bg-element-hover);
+        }
+        .officer-option.selected {
+            border-color: var(--bg-accent);
+            background: var(--bg-accent);
+            color: var(--text-light);
+        }
+        .assignment-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            border: 1px solid var(--border-main);
+            border-radius: 8px;
+            padding: 10px;
+            background: var(--bg-element);
+            margin-bottom: 15px;
+        }
+        .assignment-controls select, .assignment-controls input {
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--bg-accent);
+            background: var(--bg-main);
+            color: var(--text-main);
+        }
+        .assignments-list-container h5 { margin-bottom: 10px; }
+        .assignment-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 10px;
+            background: var(--bg-main);
+            border-radius: 6px;
+            margin-bottom: 5px;
+        }
+        .assignment-item .delete-assignment-btn {
+            background: none; border: none; color: var(--btn-red); font-size: 18px; cursor: pointer;
+        }
+        .confirm-modal .modal-body { text-align: center; font-size: 1.1em; }
+        .confirm-modal .modal-footer { display: flex; justify-content: center; gap: 15px; padding: 20px; }
+
+        /* Уведомления */
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(150%);
+            padding: 15px 25px;
+            border-radius: 8px;
+            color: var(--text-light);
+            font-weight: 500;
+            z-index: 2000;
+            transition: transform 0.4s ease-in-out;
+            box-shadow: 0 5px 15px var(--shadow-main);
+        }
+        .notification.show { transform: translateX(-50%) translateY(0); }
+        .notification.success { background: var(--btn-green); }
+        .notification.error { background: var(--btn-red); }
+        .notification.info { background: var(--btn-blue); }
+        
+        /* Увеличенный просмотр дня */
+        .enlarged-day-content {
+            padding: 30px;
+            text-align: center;
+        }
+        .enlarged-day-content h2 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            color: var(--border-accent);
+        }
+        .enlarged-day-content p {
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            border-radius: 8px;
+        }
+
+        /* Адаптивность */
+        @media (max-width: 768px) {
+            body { padding: 5px; }
+            .header h1 { font-size: 1.5em; }
+            .main-content, .section-container { padding: 15px; }
+            .day-cell { min-height: 80px; padding: 6px 4px; }
+            .day-number { font-size: 14px; }
+            .day-entry { font-size: 9px; }
+            .stats-list, .current-officers-list { grid-template-columns: 1fr; }
+            .officer-list { grid-template-columns: 1fr; }
+            .tab-button { flex-grow: 1; }
+            .current-officer-item .person-name,
+            .current-officer-item .telegram-id,
+            .current-officer-item .role-selector {
+                flex-basis: auto; /* Allow items to shrink/grow */
+                width: 100%; /* Take full width */
+            }
+            .current-officer-item .delete-officer-btn {
+                margin-left: auto; /* Push to the right */
+            }
+        }
+
+        /* Дополнительные стили для очень маленьких экранов */
+        @media (max-width: 480px) {
+            .day-cell {
+                min-height: 70px; /* Further reduced height */
+                padding: 4px 2px; /* Reduced padding */
+            }
+            .day-number {
+                font-size: 12px; /* Smaller font for day number */
+            }
+            .day-entry {
+                font-size: 7px; /* Smaller font for entries */
+            }
+            .calendar-grid {
+                gap: 1px; /* Reduced gap */
+            }
+        }
+
+        @media (max-width: 375px) {
+            .day-cell {
+                min-height: 60px; /* Even smaller height for tiny screens */
+                padding: 3px 1px; /* Minimal padding */
+            }
+            .day-number {
+                font-size: 11px; /* Even smaller font for day number */
+            }
+            .day-entry {
+                font-size: 6px; /* Even smaller font for entries */
+            }
+            .calendar-grid {
+                gap: 0px; /* No gap */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="loadingIndicator" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; color: white; font-size: 1.5em; z-index: 9999;">Загрузка...</div>
+    <div class="container" id="appContainer">
+        <!-- App content will be rendered here by JavaScript -->
+    </div>
+
+    <!-- MODALS (kept outside the main container for positioning) -->
+    <!-- Universal Modal for Editing -->
+    <div class="modal-overlay" id="editModalOverlay">
+        <div class="modal" id="editModal">
+            <div class="modal-header">
+                <h4 id="editModalTitle"></h4>
+                <button class="modal-close" data-action="closeModal">&times;</button>
+            </div>
+            <div class="modal-body" id="editModalBody"></div>
+        </div>
+    </div>
+    
+    <!-- Enlarged Day View Modal -->
+    <div class="modal-overlay" id="viewModalOverlay" data-action="closeModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h4 id="viewModalTitle">Просмотр дня</h4>
+                <button class="modal-close" data-action="closeModal">&times;</button>
+            </div>
+            <div class="modal-body enlarged-day-content" id="viewModalBody"></div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal-overlay confirm-modal" id="confirmModalOverlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h4>Подтверждение</h4>
+                <button class="modal-close" data-action="closeConfirmModal">&times;</button>
+            </div>
+            <div class="modal-body" id="confirmModalMessage"></div>
+            <div class="modal-footer">
+                <button class="btn btn--save" id="confirmModalConfirmBtn">Да</button>
+                <button class="btn btn--cancel" id="confirmModalCancelBtn">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Summary Modal -->
+    <div class="modal-overlay" id="summaryModalOverlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h4 id="summaryModalTitle">Сводка за месяц</h4>
+                <button class="modal-close" data-action="closeSummaryModal">&times;</button>
+            </div>
+            <div class="modal-body" id="summaryModalBody" style="max-height: 70vh;"></div>
+        </div>
+    </div>
 </body>
 </html>
