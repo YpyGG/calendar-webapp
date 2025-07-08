@@ -124,9 +124,23 @@
                     VIEW.showLoadingIndicator();
                     this.initTelegram(); // Initialize Telegram Web App first to get user info
                     this.initFirebase(); // Initialize Firebase
+                    
+                    // Log Firebase initialization status
+                    console.log("Firebase initialized. STATE.db:", STATE.db ? "OK" : "NULL", "STATE.auth:", STATE.auth ? "OK" : "NULL");
+
+                    // Only proceed with authentication if Firebase Auth is initialized
+                    if (!STATE.auth) {
+                        console.error("Firebase Auth is not initialized. Cannot proceed with authentication.");
+                        VIEW.showNotification("Ошибка: Служба аутентификации Firebase недоступна. Проверьте конфигурацию.", "error");
+                        VIEW.renderUnauthorized(); // Render unauthorized if Firebase Auth is not ready
+                        VIEW.hideLoadingIndicator();
+                        return;
+                    }
+
                     await this.authenticateFirebase();
 
                     if (!STATE.currentUserId) {
+                        console.error("Authentication failed, currentUserId is null. Rendering unauthorized.");
                         VIEW.renderUnauthorized(); // Render unauthorized if Firebase auth fails
                         VIEW.hideLoadingIndicator();
                         return;
@@ -137,6 +151,7 @@
                     console.log("User role after determination:", STATE.userRole); // Added for debugging
                     
                     if (STATE.userRole === 'guest') {
+                        console.error("User role determined as 'guest'. Rendering unauthorized.");
                         VIEW.renderUnauthorized(); // Show guest message if role is guest
                         VIEW.hideLoadingIndicator();
                         return;
@@ -156,29 +171,48 @@
                 initFirebase() {
                     try {
                         const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+                        // Add a check for valid config
+                        if (!firebaseConfig || !firebaseConfig.apiKey || !firebaseConfig.projectId) {
+                            console.error("Firebase config is missing or invalid:", firebaseConfig);
+                            VIEW.showNotification("Ошибка: Неверная конфигурация Firebase. Убедитесь, что Firebase настроен правильно.", "error");
+                            STATE.db = null; // Ensure state is consistent
+                            STATE.auth = null; // Ensure state is consistent
+                            return; // Stop initialization if config is bad
+                        }
                         const app = initializeApp(firebaseConfig);
                         STATE.db = getFirestore(app);
                         STATE.auth = getAuth(app);
+                        console.log("Firebase initialized. STATE.db:", STATE.db ? "OK" : "NULL", "STATE.auth:", STATE.auth ? "OK" : "NULL");
                     } catch (e) {
                         console.error("Error initializing Firebase:", e);
                         VIEW.showNotification("Ошибка инициализации Firebase. Попробуйте позже.", "error");
+                        STATE.db = null; // Ensure state is consistent
+                        STATE.auth = null; // Ensure state is consistent
                     }
                 },
 
                 async authenticateFirebase() {
+                    if (!STATE.auth) {
+                        console.error("Firebase Auth is not initialized. Cannot authenticate.");
+                        VIEW.showNotification("Ошибка: Служба аутентификации Firebase недоступна. Проверьте конфигурацию.", "error");
+                        STATE.currentUserId = null;
+                        return; // Exit if auth is not ready
+                    }
                     try {
-                        if (typeof __initial_auth_token !== 'undefined') {
+                        console.log("Attempting Firebase authentication...");
+                        console.log("Value of __initial_auth_token:", typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : "undefined (will attempt anonymous sign-in)");
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { // Added check for empty string
                             const userCredential = await signInWithCustomToken(STATE.auth, __initial_auth_token);
                             STATE.currentUserId = userCredential.user.uid;
-                            console.log("Signed in with custom token:", STATE.currentUserId);
+                            console.log("Signed in with custom token. Firebase UID:", STATE.currentUserId);
                         } else {
                             const userCredential = await signInAnonymously(STATE.auth);
                             STATE.currentUserId = userCredential.user.uid;
-                            console.log("Signed in anonymously:", STATE.currentUserId);
+                            console.log("Signed in anonymously. Firebase UID:", STATE.currentUserId);
                         }
                     } catch (error) {
                         console.error("Error during Firebase authentication:", error);
-                        VIEW.showNotification("Ошибка аутентификации. Попробуйте позже.", "error");
+                        VIEW.showNotification("Ошибка аутентификации. Возможно, проблема с токеном или конфигурацией Firebase. Попробуйте позже.", "error");
                         STATE.currentUserId = null;
                     }
                 },
@@ -189,6 +223,7 @@
                     STATE.telegramUser = tg.initDataUnsafe.user;
                     // Для тестирования в браузере, если Telegram WebApp не доступен
                     if (!STATE.telegramUser) {
+                        console.warn("Telegram WebApp user data not available, using fallback admin ID for testing.");
                         STATE.telegramUser = { id: parseInt(CONFIG.DEFAULT_ADMIN_ID), first_name: 'Тестовый', username: 'test_admin_user' };
                     }
                     tg.expand();
