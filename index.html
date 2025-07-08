@@ -171,8 +171,9 @@
                 initFirebase() {
                     try {
                         const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+                        console.log("Parsed Firebase Config:", firebaseConfig); // ADDED THIS LOG
                         // Add a check for valid config
-                        if (!firebaseConfig || !firebaseConfig.apiKey || !firebaseConfig.projectId) {
+                        if (!firebaseConfig || Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey || !firebaseConfig.projectId) { // Modified check for empty object
                             console.error("Firebase config is missing or invalid:", firebaseConfig);
                             VIEW.showNotification("Ошибка: Неверная конфигурация Firebase. Убедитесь, что Firebase настроен правильно.", "error");
                             STATE.db = null; // Ensure state is consistent
