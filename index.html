@@ -77,7 +77,7 @@
                 // Removed "8pc" from SHIFT_TYPES
                 SHIFT_TYPES: ["8", "ДС", "День караул", "Ночь караул", "Отсыпной", "Выходной", "Отпуск", "Больничный"],
                 NO_DUTY_LABEL: "Нет дежурства",
-                NAME_REGEX: /^[А-ЯЁ][а-яё]+\s[А-ЯЁ]\.[А-ЯЁ]\.$/,
+                NAME_REGEX: /^[А-ЯЁа-яёA-Za-z\- ]{2,}(\s[А-ЯЁA-Za-z]\.[А-ЯЁA-Za-z]\.)?$/,
                 INITIAL_DATA: {
                     // Initial officers and technicians lists are now used to populate `STATE.users` on first load
                     officers: ["Морозов В.А.", "Ребраков Т.В.", "Костырин С.С.", "Бонадыков В.В.", "Бурлаков М.Ю.", "Артемьев А.М.", "Мефед И.С."],
@@ -110,7 +110,7 @@
              * STATE: Единственный источник правды для состояния приложения.
              */
             const STATE = {
-                appId: typeof __app_id !== 'undefined' ? __app_id : 'default-app-id',
+                appId: 'default-app-id',  // Жёстко прописан appId для Firestore
                 db: null,
                 auth: null,
                 telegramUser: null,
@@ -630,7 +630,7 @@
                         return;
                     }
                     if (!name || !CONFIG.NAME_REGEX.test(name)) {
-                        VIEW.showNotification("Введите имя в формате 'Фамилия И.О.'", 'error');
+                        VIEW.showNotification("Введите корректное имя. Примеры: 'Иванов', 'Иванов И.И.', 'Петров-Сидоров А.Б.', 'Анна Мария', 'Смирнов-Лебедев'.", 'error');
                         return;
                     }
                     if (!telegramId || !/^\d+$/.test(telegramId)) {
@@ -686,53 +686,21 @@
                         VIEW.showNotification('База данных не инициализирована. Невозможно удалить сотрудника.', 'error');
                         return;
                     }
-
                     const personName = STATE.users[personIdToDelete]?.name;
                     if (!personName) {
                         VIEW.showNotification('Сотрудник не найден.', 'error');
                         return;
                     }
-
-                    const confirmed = await VIEW.showConfirmModal(`Вы уверены, что хотите удалить сотрудника "${personName}"? Все его дежурства и назначения будут стерты.`);
+                    const confirmed = await VIEW.showConfirmModal(`Вы уверены, что хотите деактивировать сотрудника "${personName}"? Его нельзя будет назначать на новые смены, но история останется.`);
                     if (!confirmed) return;
-
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     try {
-                        await deleteDoc(doc(usersRef, personIdToDelete));
-
-                        // Remove all duties/assignments for this person across all months and calendars
-                        // This part will be handled by the onSnapshot listener for month data,
-                        // as the data will be re-rendered when the month document updates.
-                        // However, to ensure immediate consistency and prevent potential issues with stale data,
-                        // we can explicitly clean up the local STATE data.
-                        for (let month = 0; month < 12; month++) {
-                            if (STATE.duties[month]) {
-                                Object.keys(STATE.duties[month]).forEach(day => {
-                                    if (STATE.duties[month][day] === personName) {
-                                        delete STATE.duties[month][day];
-                                    }
-                                });
-                            }
-                            ['techDuties', 'generalSchedule'].forEach(key => {
-                                if (STATE[key][month]) {
-                                    Object.keys(STATE[key][month]).forEach(day => {
-                                        if (Array.isArray(STATE[key][month][day])) {
-                                            STATE[key][month][day] = STATE[key][month][day].filter(a => a.person !== personName);
-                                            if (STATE[key][month][day].length === 0) {
-                                                delete STATE[key][month][day];
-                                            }
-                                        }
-                                    });
-                                }
-                            });
-                        }
-                        // Trigger a save to update the current month's data in Firestore after local cleanup
-                        await this.saveData(); // This will update the current month's document in Firestore
-
-                        VIEW.showNotification(`Сотрудник "${personName}" удален.`, 'info');
+                        // Вместо удаления — ставим флаг active: false
+                        await updateDoc(doc(usersRef, personIdToDelete), { active: false });
+                        VIEW.showNotification(`Сотрудник "${personName}" деактивирован.`, 'info');
                     } catch (e) {
-                        console.error("Error deleting person from Firestore:", e);
-                        VIEW.showNotification("Ошибка удаления сотрудника.", "error");
+                        console.error("Error deactivating person in Firestore:", e);
+                        VIEW.showNotification("Ошибка деактивации сотрудника.", "error");
                     }
                 },
 
@@ -1405,7 +1373,6 @@
             VIEW.renderManagementList = function() {
                 const list = this.currentOfficersList; // Use stored reference
                 if (!list) return; // Defensive check
-                // --- Добавляем поле поиска ---
                 let searchInput = document.getElementById('officerSearchInput');
                 if (!searchInput) {
                     searchInput = document.createElement('input');
@@ -1426,11 +1393,18 @@
                 const filteredUsers = filter ? allUsers.filter(([, u]) => u.name.toLowerCase().includes(filter)) : allUsers;
                 list.innerHTML = '';
                 filteredUsers.forEach(([id, userData]) => {
+                    // Скрываем неактивных сотрудников (active === false), но показываем их с пометкой если нужно
+                    if (userData.active === false) return; // Можно закомментировать, чтобы показывать с пометкой
                     const item = document.createElement('div');
                     item.className = 'current-officer-item';
-                    const telegramIdDisplay = ` (ID: ${id})`;
-                    item.innerHTML = `<span class="person-name">${userData.name}</span>
-                                      <span class="telegram-id">${telegramIdDisplay}</span>`;
+                    const nameSpan = document.createElement('span');
+                    nameSpan.className = 'person-name';
+                    nameSpan.textContent = userData.name + (userData.active === false ? ' (неактивен)' : '');
+                    const idSpan = document.createElement('span');
+                    idSpan.className = 'telegram-id';
+                    idSpan.textContent = ` (ID: ${id})`;
+                    item.appendChild(nameSpan);
+                    item.appendChild(idSpan);
                     // Role selector
                     const roleSelect = document.createElement('select');
                     roleSelect.className = 'role-selector';
@@ -1445,7 +1419,7 @@
                         }
                         roleSelect.appendChild(option);
                     });
-                    if (STATE.userRole !== 'admin' || id === STATE.telegramUser.id.toString()) {
+                    if (STATE.userRole !== 'admin' || id === STATE.telegramUser.id.toString() || userData.active === false) {
                         roleSelect.disabled = true;
                     }
                     roleSelect.addEventListener('change', (e) => {
@@ -1456,16 +1430,15 @@
                     const deleteBtn = document.createElement('button');
                     deleteBtn.className = 'delete-officer-btn';
                     deleteBtn.innerHTML = '&times;'; 
-                    deleteBtn.title = `Удалить ${userData.name}`;
+                    deleteBtn.title = `Деактивировать ${userData.name}`;
                     deleteBtn.dataset.action = 'deletePerson'; // New action name
                     deleteBtn.dataset.personIdToDelete = id; // Pass the ID to delete
-                    if (STATE.userRole !== 'admin' || id === STATE.telegramUser.id.toString()) { // Admin cannot delete self
+                    if (STATE.userRole !== 'admin' || id === STATE.telegramUser.id.toString() || userData.active === false) { // Admin cannot delete self or inactive
                         deleteBtn.disabled = true;
                     }
                     item.appendChild(deleteBtn);
                     list.appendChild(item);
                 });
-                // --- Событие фильтрации ---
                 searchInput.oninput = () => this.renderManagementList();
             };
 
@@ -1917,12 +1890,12 @@
             });
 
             // --- Проверка: если выбран техник или работяга и смена 'ДС', запрещаем ---
-            const isTechnician = TECHNICIANS_GROUP.includes(person);
-            const isWorker = Object.values(STATE.users).some(u => u.name === person && u.role === 'worker');
-            if (shift === 'ДС' && (isTechnician || isWorker)) {
-                VIEW.showNotification('Только офицер может быть назначен на смену ДС!', 'error');
-                return;
-            }
+            // const isTechnician = TECHNICIANS_GROUP.includes(person);
+            // const isWorker = Object.values(STATE.users).some(u => u.name === person && u.role === 'worker');
+            // if (shift === 'ДС' && (isTechnician || isWorker)) {
+            //     VIEW.showNotification('Только офицер может быть назначен на смену ДС!', 'error');
+            //     return;
+            // }
 
         })(); // Конец IIFE
     </script>
