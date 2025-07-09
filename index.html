@@ -147,12 +147,14 @@
                         }
                         await this.loadUsersFromFirestore();
                         this.determineUserRole();
+                        // --- НАЧАЛО ИЗМЕНЕНИЙ ДЛЯ ТЕСТИРОВАНИЯ НА ТЕЛЕФОНЕ (ВОЗВРАЩЕНИЕ ПРОВЕРКИ РОЛИ) ---
                         if (STATE.userRole === 'guest') {
                             console.error("User role determined as 'guest'. Rendering unauthorized.");
                             VIEW.renderUnauthorized('guest_role');
                             VIEW.hideLoadingIndicator(); // Hide on error path
                             return;
                         }
+                        // --- КОНЕЦ ИЗМЕНЕНИЙ ДЛЯ ТЕСТИРОВАНИЯ НА ТЕЛЕФОНЕ ---
                         
                         // Render the app shell first
                         VIEW.renderAppShell();
