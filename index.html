@@ -1320,6 +1320,16 @@
 
             // Новая функция для рендеринга вкладок и кнопок действий
             VIEW.renderTabsAndButtons = function() {
+                // 1) Скрываем/показываем кнопку редактирования
+                const editBtn = this.toggleEditModeBtn; // Используем ссылку из VIEW
+                if (editBtn) { // Проверяем, что кнопка существует
+                    if (STATE.userRole !== 'admin' && STATE.userRole !== 'boss') {
+                        editBtn.style.display = 'none';
+                    } else {
+                        editBtn.style.display = ''; // вернуть default (flex в данном случае)
+                    }
+                }
+
                 if (this.tabNavigation) {
                     // Update active tab button
                     this.tabNavigation.querySelectorAll('.tab-button').forEach(button => {
