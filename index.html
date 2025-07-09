@@ -417,22 +417,26 @@
                         VIEW.showNotification('У вас нет прав для редактирования.', 'error');
                         return;
                     }
-
-                    // --- НАЧАЛО ИЗМЕНЕНИЯ ---
-                    // Убираем фокус с любого активного элемента, чтобы не всплывала клавиатура на мобильных
-                    if (document.activeElement) {
-                        document.activeElement.blur();
-                    }
-                    // --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
+                    
+                    // First, handle unsaved changes if exiting edit mode
                     if (STATE.isEditMode && STATE.hasUnsavedChanges) {
                         const confirmed = await VIEW.showConfirmModal('У вас есть несохраненные изменения. Сохранить их перед выходом?');
                         if (confirmed) await this.saveData();
                         else this.setupFirestoreListeners(); // Revert to Firestore state
                     }
+                    
+                    // Toggle the mode
                     STATE.isEditMode = !STATE.isEditMode;
+                    
+                    // Render UI based on new mode
+                    VIEW.renderAll(); 
+
+                    // Now, blur any active element if it's still focused after rendering
+                    if (document.activeElement) {
+                        document.activeElement.blur();
+                    }
+
                     VIEW.showNotification(STATE.isEditMode ? 'Режим редактирования включен' : 'Режим просмотра', 'info');
-                    VIEW.renderAll();
                 },
 
                 switchTab(tabName) {
@@ -754,6 +758,7 @@
                     const keyMap = { duty: 'duties', technician: 'techDuties', general: 'generalSchedule' };
                     STATE[keyMap[STATE.activeTab]][STATE.currentMonth] = {};
                     await this.saveData();
+                    VIEW.renderAll(); // Добавлено для немедленного визуального обновления
                     VIEW.showNotification(`Данные для текущего месяца в ${tabName} очищены.`, 'info');
                 },
                 
@@ -1290,8 +1295,8 @@
                     const assignmentsArray = Array.isArray(dayAssignments) ? dayAssignments : (typeof dayAssignments === 'string' ? [{ person: dayAssignments, shift: '' }] : []);
                     
                     const entriesContainer = cell.querySelector('.day-entries-container');
-                    // Передаём тип календаря для правильного отображения кружков
-                    assignmentsArray.forEach(a => entriesContainer.appendChild(this.createDayEntry(a.person, a.shift, calendarType)));
+                    // Передаём тип календаря и количество назначений для правильного отображения кружков
+                    assignmentsArray.forEach(a => entriesContainer.appendChild(this.createDayEntry(a.person, a.shift, calendarType, assignmentsArray.length)));
                     
                     fragment.appendChild(cell);
                 }
@@ -1300,7 +1305,7 @@
                 grid.appendChild(fragment);
             };
             
-            VIEW.createDayEntry = function(person, shift, calendarType) {
+            VIEW.createDayEntry = function(person, shift, calendarType, numAssignments) { // Added numAssignments parameter
                 // Получаем инициалы: первая буква фамилии и имени
                 let initials = '';
                 if (person) {
@@ -1331,6 +1336,9 @@
                 // Для duty только инициалы, для остальных — инициалы + смена
                 if (calendarType === 'duty') {
                     entry.className = 'avatar-initials avatar-grid';
+                    if (numAssignments === 1) { // Apply single-entry class if only one assignment
+                        entry.classList.add('single-entry');
+                    }
                     entry.title = person;
                     const personColor = this.getColorFor(person);
                     entry.style.backgroundColor = personColor;
@@ -1338,6 +1346,9 @@
                     entry.innerHTML = `<span class="avatar-letters">${initials}</span>`;
                 } else {
                     entry.className = 'avatar-initials avatar-grid';
+                    if (numAssignments === 1) { // Apply single-entry class if only one assignment
+                        entry.classList.add('single-entry');
+                    }
                     entry.title = shift ? `${person} (${shift})` : person;
                     const personColor = this.getColorFor(person);
                     entry.style.backgroundColor = personColor;
@@ -1744,7 +1755,7 @@
             VIEW.isLightColor = function(hex) {
                 const r = parseInt(hex.substring(1, 3), 16);
                 const g = parseInt(hex.substring(3, 5), 16);
-                const b = parseInt(hex.substring(5, 7), 16);
+                b = parseInt(hex.substring(5, 7), 16);
                 return (r * 299 + g * 587 + b * 114) / 1000 > 180;
             };
 
@@ -1780,7 +1791,7 @@
                         switch (action) {
                             case 'toggleEditMode': SERVICE.toggleEditMode(); break;
                             case 'save': SERVICE.saveData(); break;
-                            case 'clear': SERVICE.clearMonth(); break; // <--- ДОБАВЛЕНА ЭТА СТРОКА
+                            case 'clear': SERVICE.clearMonth(); break;
                             case 'cancel': SERVICE.cancelChanges(); break;
                             case 'toggleSection': document.getElementById(actionTarget.dataset.target)?.classList.toggle('hidden-section'); break;
                             case 'addPerson': SERVICE.addPerson(VIEW.newOfficerNameInput.value, VIEW.newOfficerTelegramIdInput.value); break; // Use stored references
@@ -2225,7 +2236,7 @@
             flex-wrap: wrap;
             gap: 4px;
             justify-content: center;
-            align-items: flex-start;
+            align-items: center; /* Изменено с flex-start на center */
             flex-grow: 1;
             overflow: hidden;
         }
@@ -2258,6 +2269,21 @@
             margin-top: 2px;
             line-height: 1;
         }
+        /* Стили для одиночной записи */
+        .avatar-initials.single-entry {
+            width: 80px; /* Пример фиксированного размера для более крупной одиночной записи */
+            height: 80px;
+            border-radius: 15px; /* Слегка закругленный прямоугольник */
+            font-size: 2em; /* Более крупный шрифт */
+            margin: auto; /* Центрирование по горизонтали */
+        }
+        .avatar-initials.single-entry .avatar-letters {
+            font-size: 1.2em; /* Относительный размер шрифта для одиночной записи */
+        }
+        .avatar-initials.single-entry .avatar-shift {
+            font-size: 0.7em; /* Относительный размер шрифта для одиночной записи */
+        }
+
         @media (max-width: 768px) {
             .avatar-initials.avatar-grid {
                 width: 26px;
@@ -2268,6 +2294,12 @@
             }
             .avatar-letters { font-size: 11px; }
             .avatar-shift { font-size: 8px; }
+
+            .avatar-initials.single-entry {
+                width: 60px;
+                height: 60px;
+                font-size: 1.5em;
+            }
         }
         .day-entry {
             font-size: 10px;
@@ -2599,6 +2631,11 @@
                 min-height: 16px;
                 font-size: 7px;
             }
+            .avatar-initials.single-entry {
+                width: 50px;
+                height: 50px;
+                font-size: 1.2em;
+            }
         }
 
         @media (max-width: 375px) {
@@ -2614,6 +2651,11 @@
             }
             .calendar-grid {
                 gap: 0px; /* No gap */
+            }
+            .avatar-initials.single-entry {
+                width: 40px;
+                height: 40px;
+                font-size: 1em;
             }
         }
     </style>
