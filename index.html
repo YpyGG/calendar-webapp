@@ -82,22 +82,24 @@
                         "1": [{ person: "Ребраков Т.В.", shift: "8" }, { person: "Кузавлев П.С.", shift: "ДС" }],
                     }
                 },
-                FIREBASE_CONFIG: {
-                    apiKey: "AIzaSyBrfimxAJC-fN4aThvXH_B4jMWDA4pwysk",
-                    authDomain: "ik2grafik.firebaseapp.com",
-                    projectId: "ik2grafik",
-                    storageBucket: "ik2grafik.firebasestorage.app",
-                    messagingSenderId: "141207090372",
-                    appId: "1:141207090372:web:b292ee339a23640027c591",
-                    measurementId: "G-CSVDH3P8V1"
-                }
+                // Конфигурация Firebase теперь загружается из глобальной переменной __firebase_config
+                // FIREBASE_CONFIG: {
+                //     apiKey: "AIzaSyBrfimxAJC-fN4aThvXH_B4jMWDA4pwysk",
+                //     authDomain: "ik2grafik.firebaseapp.com",
+                //     projectId: "ik2grafik",
+                //     storageBucket: "ik2grafik.firebasestorage.app",
+                //     messagingSenderId: "141207090372",
+                //     appId: "1:141207090372:web:b292ee339a23640027c591",
+                //     measurementId: "G-CSVDH3P8V1"
+                // }
             };
 
             /**
              * STATE: Единственный источник правды для состояния приложения.
              */
             const STATE = {
-                appId: 'default-app-id',
+                // Используем __app_id, предоставленный средой Canvas, или 'default-app-id' для локального тестирования
+                appId: typeof __app_id !== 'undefined' ? __app_id : 'default-app-id',
                 db: null,
                 auth: null,
                 telegramUser: null,
@@ -184,7 +186,8 @@
 
                 async initFirebase() {
                     try {
-                        const firebaseConfig = CONFIG.FIREBASE_CONFIG;
+                        // Загружаем конфигурацию Firebase из глобальной переменной, предоставленной средой Canvas
+                        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
 
                         if (!firebaseConfig || Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey || !firebaseConfig.projectId) {
                             console.error("Firebase config is missing or invalid. Config:", firebaseConfig);
@@ -212,9 +215,15 @@
                         return;
                     }
                     try {
-                        console.log("Attempting Firebase anonymous authentication...");
-                        const userCredential = await signInAnonymously(STATE.auth);
-                        STATE.currentUserId = userCredential.user.uid;
+                        console.log("Attempting Firebase authentication...");
+                        // Используем __initial_auth_token, если доступен, иначе анонимный вход
+                        if (typeof __initial_auth_token !== 'undefined') {
+                            const userCredential = await signInWithCustomToken(STATE.auth, __initial_auth_token);
+                            STATE.currentUserId = userCredential.user.uid;
+                        } else {
+                            const userCredential = await signInAnonymously(STATE.auth);
+                            STATE.currentUserId = userCredential.user.uid;
+                        }
                     } catch (error) {
                         console.error("Error during Firebase authentication:", error);
                         VIEW.showNotification("Ошибка аутентификации. Убедитесь, что Firebase Authentication включен для вашего проекта 'ik2grafik' в консоли Firebase (метод 'Anonymous').", "error");
@@ -899,7 +908,8 @@
                         let chatHistory = [];
                         chatHistory.push({ role: "user", parts: [{ text: prompt }] });
                         const payload = { contents: chatHistory };
-                        const apiKey = "AIzaSyC13hfpbNKBs3xTY8YxisyS5lSF3xajUyQ";
+                        // API Key for Gemini API is handled by the Canvas environment, no need to hardcode
+                        const apiKey = ""; 
                         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
                         
                         const response = await fetch(apiUrl, {
