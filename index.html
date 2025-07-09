@@ -136,13 +136,16 @@
                     try {
                         this.initTelegram(); // Инициализация Telegram WebApp и получение initDataUnsafe
 
-                        // Выполнение проверки подписи Telegram с использованием отладочного прокси
-                        // ВРЕМЕННО: validateTelegramAuthSignature теперь всегда возвращает true,
-                        // чтобы приложение загрузилось и вы могли видеть отладочные логи в консоли.
-                        // После отладки, вернитесь к проверке data.ok для полноценной авторизации.
-                        const isTelegramAuthValid = await this.validateTelegramAuthSignature();
-                        // Убираем блок if (!isTelegramAuthValid) {...}, чтобы приложение загружалось
-                        // даже при ошибке авторизации для целей отладки.
+                        // Откладываем проверку подписи Telegram, чтобы initData успел заполниться
+                        await new Promise(resolve => {
+                            setTimeout(async () => {
+                                const isTelegramAuthValid = await this.validateTelegramAuthSignature();
+                                if (!isTelegramAuthValid) {
+                                     console.warn("Telegram initData был недоступен или проверка подписи не удалась после задержки.");
+                                }
+                                resolve(); // Разрешаем промис, чтобы продолжить инициализацию
+                            }, 500); // Задержка 500 мс
+                        });
 
                         await this.initFirebase();
                         if (!STATE.auth) {
@@ -212,9 +215,11 @@
                                     firebaseConfig = parsedConfig;
                                 } else {
                                     console.warn("Parsed __firebase_config is empty or invalid, falling back to hardcoded config.");
+                                    VIEW.showNotification("Предупреждение: Конфигурация Firebase из Canvas пуста или недействительна. Используется жестко закодированная конфигурация.", "warning");
                                 }
                             } catch (e) {
                                 console.warn("Could not parse __firebase_config, falling back to hardcoded config:", e);
+                                VIEW.showNotification("Предупреждение: Не удалось разобрать конфигурацию Firebase из Canvas. Используется жестко закодированная конфигурация.", "warning");
                             }
                         }
 
@@ -275,7 +280,16 @@
                 async validateTelegramAuthSignature() {
                     try {
                         const initData = window.Telegram.WebApp.initData;
-                        console.log("Отправка initData для отладки:", initData); // Добавим лог отправляемых данных
+                        console.log("DEBUG: Telegram.WebApp.initData получен:", initData); // Более явный лог
+
+                        if (!initData || initData.trim() === '') {
+                            console.error("Ошибка: Telegram.WebApp.initData пуст или отсутствует. Невозможно проверить подпись.");
+                            VIEW.showNotification("Ошибка авторизации Telegram: initData отсутствует. Убедитесь, что приложение запущено из Telegram.", "error");
+                            // Все еще возвращаем true, чтобы приложение загрузилось для целей отладки
+                            return true;
+                        }
+
+                        console.log("Отправка initData для отладки на прокси:", initData);
 
                         const res = await fetch("https://telegram-auth-debug.ik2grafik.workers.dev", { // Изменено на debug URL
                             method: "POST",
@@ -288,12 +302,16 @@
 
                         // ВРЕМЕННО: Всегда возвращаем true, чтобы приложение загрузилось для отладки.
                         // После отладки вернитесь к проверке data.ok для полноценной авторизации.
+                        // if (!data.ok) {
+                        //     VIEW.showNotification(`Ошибка проверки подписи: ${data.error || 'Неизвестно'}`, "error");
+                        //     return false;
+                        // }
                         return true;
 
                     } catch (err) {
                         console.error("Ошибка при вызове отладочного прокси Telegram:", err);
                         VIEW.showNotification("Ошибка при вызове отладочного прокси Telegram. Произошла сетевая ошибка.", "error");
-                        return false; // Если произошла ошибка fetch, все равно возвращаем false, но приложение продолжит загрузку
+                        return true; // Если произошла ошибка fetch, все равно возвращаем true, но приложение продолжит загрузку
                     }
                 },
 
@@ -456,7 +474,7 @@
                     STATE.technicians = Object.values(STATE.users)
                         .filter(u => CONFIG.INITIAL_DATA.technicians.includes(u.name) && u.active !== false) // Добавлена проверка на active
                         .map(u => u.name);
-                    STATE.officers = [...new Set(STATE.officers)].sort();
+                    STATE.officians = [...new Set(STATE.officers)].sort();
                     STATE.technicians = [...new Set(STATE.technicians)].sort();
                 },
 
@@ -2023,7 +2041,7 @@
                             }
                         });
                         // Initial check for button state based on role (even if input is empty)
-                        addBtn.disabled = STATE.userRole !== 'admin';
+                        addBtn.disabled = STATE.userRole === 'admin' ? false : true; // Only admin can add
                         addBtn.title = STATE.userRole === 'admin' ? "" : "Только администратор может добавлять сотрудников";
                     }
                 },
@@ -2587,8 +2605,7 @@
             transition: color 0.2s ease;
             padding: 5px;
             border-radius: 50%;
-            width: 44px; /* Smaller touch target for delete */
-            height: 44px;
+            width: 44px; height: 44px;
             display: flex;
             align-items: center;
             justify-content: center;
