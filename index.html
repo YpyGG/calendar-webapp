@@ -417,6 +417,14 @@
                         VIEW.showNotification('У вас нет прав для редактирования.', 'error');
                         return;
                     }
+
+                    // --- НАЧАЛО ИЗМЕНЕНИЯ ---
+                    // Убираем фокус с любого активного элемента, чтобы не всплывала клавиатура на мобильных
+                    if (document.activeElement) {
+                        document.activeElement.blur();
+                    }
+                    // --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
                     if (STATE.isEditMode && STATE.hasUnsavedChanges) {
                         const confirmed = await VIEW.showConfirmModal('У вас есть несохраненные изменения. Сохранить их перед выходом?');
                         if (confirmed) await this.saveData();
@@ -1772,7 +1780,7 @@
                         switch (action) {
                             case 'toggleEditMode': SERVICE.toggleEditMode(); break;
                             case 'save': SERVICE.saveData(); break;
-                            case 'clear': SERVICE.clearMonth(); break;
+                            case 'clear': SERVICE.clearMonth(); break; // <--- ДОБАВЛЕНА ЭТА СТРОКА
                             case 'cancel': SERVICE.cancelChanges(); break;
                             case 'toggleSection': document.getElementById(actionTarget.dataset.target)?.classList.toggle('hidden-section'); break;
                             case 'addPerson': SERVICE.addPerson(VIEW.newOfficerNameInput.value, VIEW.newOfficerTelegramIdInput.value); break; // Use stored references
