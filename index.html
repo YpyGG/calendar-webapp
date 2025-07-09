@@ -749,11 +749,11 @@
                         return;
                     }
                     if (!telegramId || !/^\d+$/.test(telegramId)) {
-                        VIEW.showNotification('Telegram ID должен содержать только цифры.', 'error');
+                        VIEW.showNotification('Telegram ID должен содержать только цифры и быть обязательным.', 'error');
                         return;
                     }
                     if (telegramId.length < 6) {
-                        VIEW.showNotification('Telegram ID слишком короткий.', 'error');
+                        VIEW.showNotification('Telegram ID слишком короткий (минимум 6 цифр).', 'error');
                         return;
                     }
                     if (!STATE.db) {
@@ -1072,7 +1072,7 @@
                             <h3>Управление персоналом</h3>
                             <div class="officer-management-controls">
                                 <input type="text" id="newOfficerName" placeholder="Имя нового сотрудника (Фамилия И.О.)">
-                                <input type="text" id="newOfficerTelegramId" placeholder="Telegram ID (опционально)">
+                                <input type="text" id="newOfficerTelegramId" placeholder="Telegram ID (обязательно)">
                                 <button class="btn btn--save" data-action="addPerson">Добавить</button>
                             </div>
                             <div class="current-officers-list" id="currentOfficersList"></div>
@@ -1178,9 +1178,9 @@
             VIEW.renderUserInfo = function() {
                 const userInfoContainer = document.getElementById('userInfo');
                 if (userInfoContainer) {
-                    const { first_name, username } = STATE.telegramUser;
+                    const { first_name, username, id } = STATE.telegramUser;
                     const roleText = CONFIG.ROLE_NAMES[STATE.userRole] || 'Неизвестно';
-                    userInfoContainer.innerHTML = `Вы вошли как <span>${first_name}</span> (@${username}) | Роль: <span>${roleText}</span>`;
+                    userInfoContainer.innerHTML = `Вы вошли как <span>${first_name}</span> (@${username}) | ID: <span>${id}</span> | Роль: <span>${roleText}</span>`;
                 }
             };
 
