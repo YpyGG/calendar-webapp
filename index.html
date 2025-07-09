@@ -94,8 +94,8 @@
                     measurementId: "G-CSVDH3P8V1"
                 },
                 // --- НАСТРОЙКИ TELEGRAM БОТА ДЛЯ УВЕДОМЛЕНИЙ ---
-                TELEGRAM_BOT_TOKEN: "8001230773:AAEbjKHdzTFGRMb5C6-WfnkpMeoWwnFIwGo", // Ваш новый токен
-                TELEGRAM_ADMIN_CHAT_ID: "670669284", // ID администратора
+                // TELEGRAM_BOT_TOKEN и TELEGRAM_ADMIN_CHAT_ID теперь не хранятся здесь напрямую
+                // Они должны быть доступны через ваш Cloudflare Worker (telegram-auth-proxy.ik2grafik.workers.dev)
                 // --- КОНЕЦ НАСТРОЕК TELEGRAM БОТА ---
             };
 
@@ -142,6 +142,10 @@
                                 const isTelegramAuthValid = await this.validateTelegramAuthSignature();
                                 if (!isTelegramAuthValid) {
                                      console.warn("Telegram initData был недоступен или проверка подписи не удалась после задержки.");
+                                     // Если проверка подписи не прошла, рендерим ошибку авторизации Telegram
+                                     VIEW.renderUnauthorized('telegram_auth_failed');
+                                     VIEW.hideLoadingIndicator();
+                                     return; // Прерываем инициализацию, если Telegram авторизация не прошла
                                 }
                                 resolve(); // Разрешаем промис, чтобы продолжить инициализацию
                             }, 500); // Задержка 500 мс
@@ -276,7 +280,7 @@
                     tg.expand();
                 },
 
-                // Новая функция для проверки подписи Telegram (ВРЕМЕННО В РЕЖИМЕ ОТЛАДКИ)
+                // Функция для проверки подписи Telegram
                 async validateTelegramAuthSignature() {
                     try {
                         const initData = window.Telegram.WebApp.initData;
@@ -285,13 +289,12 @@
                         if (!initData || initData.trim() === '') {
                             console.error("Ошибка: Telegram.WebApp.initData пуст или отсутствует. Невозможно проверить подпись.");
                             VIEW.showNotification("Ошибка авторизации Telegram: initData отсутствует. Убедитесь, что приложение запущено из Telegram.", "error");
-                            // Все еще возвращаем true, чтобы приложение загрузилось для целей отладки
-                            return true;
+                            return false; // Возвращаем false, так как initData отсутствует
                         }
 
-                        console.log("Отправка initData для отладки на прокси:", initData);
+                        console.log("Отправка initData для проверки на прокси:", initData);
 
-                        const res = await fetch("https://telegram-auth-debug.ik2grafik.workers.dev", { // Изменено на debug URL
+                        const res = await fetch("https://telegram-auth-debug.ik2grafik.workers.dev", { // Используем ваш debug URL
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ initData: initData }) // Убедимся, что initData передается правильно
@@ -300,18 +303,16 @@
                         const data = await res.json();
                         console.log("Ответ отладочного прокси Telegram:", data); // Логируем весь ответ
 
-                        // ВРЕМЕННО: Всегда возвращаем true, чтобы приложение загрузилось для отладки.
-                        // После отладки вернитесь к проверке data.ok для полноценной авторизации.
-                        // if (!data.ok) {
-                        //     VIEW.showNotification(`Ошибка проверки подписи: ${data.error || 'Неизвестно'}`, "error");
-                        //     return false;
-                        // }
-                        return true;
+                        if (!data.ok) {
+                            VIEW.showNotification(`Ошибка проверки подписи Telegram: ${data.error || 'Неизвестно'}`, "error");
+                            return false;
+                        }
+                        return true; // Подпись успешно проверена
 
                     } catch (err) {
-                        console.error("Ошибка при вызове отладочного прокси Telegram:", err);
-                        VIEW.showNotification("Ошибка при вызове отладочного прокси Telegram. Произошла сетевая ошибка.", "error");
-                        return true; // Если произошла ошибка fetch, все равно возвращаем true, но приложение продолжит загрузку
+                        console.error("Ошибка при вызове прокси Telegram для проверки подписи:", err);
+                        VIEW.showNotification("Ошибка при вызове прокси Telegram для проверки подписи. Произошла сетевая ошибка.", "error");
+                        return false; // Если произошла ошибка fetch, считаем авторизацию неуспешной
                     }
                 },
 
@@ -409,35 +410,32 @@
 
                 // --- НОВАЯ ФУНКЦИЯ ДЛЯ ОТПРАВКИ УВЕДОМЛЕНИЙ АДМИНИСТРАТОРУ ---
                 async sendAdminNotification(message) {
-                    // Проверка, что TELEGRAM_BOT_TOKEN и TELEGRAM_ADMIN_CHAT_ID настроены и не являются плейсхолдерами
-                    if (!CONFIG.TELEGRAM_BOT_TOKEN || CONFIG.TELEGRAM_BOT_TOKEN === "YOUR_TELEGRAM_BOT_TOKEN_HERE" || !CONFIG.TELEGRAM_ADMIN_CHAT_ID) {
-                        console.warn("Telegram Bot Token или Admin Chat ID не настроены. Уведомление пропущено.");
-                        VIEW.showNotification("Уведомления Telegram-бота не настроены. Проверьте CONFIG.", "warning");
-                        return;
-                    }
-                    const url = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`;
+                    // URL вашего Cloudflare Worker для отправки уведомлений
+                    const workerUrl = "https://telegram-auth-proxy.ik2grafik.workers.dev"; // Используем ваш debug URL для Worker
+
                     const payload = {
-                        chat_id: CONFIG.TELEGRAM_ADMIN_CHAT_ID,
+                        action: "sendMessage", // Добавляем действие, чтобы Worker знал, что делать
+                        chat_id: CONFIG.DEFAULT_ADMIN_ID, // Используем DEFAULT_ADMIN_ID, так как он должен быть настроен в Worker
                         text: message,
-                        parse_mode: 'HTML' // Позволяет использовать HTML-теги, например <b> для жирного текста
+                        parse_mode: 'HTML'
                     };
 
                     try {
-                        const response = await fetch(url, {
+                        const response = await fetch(workerUrl, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
                         });
                         const data = await response.json();
                         if (!data.ok) {
-                            console.error("Не удалось отправить уведомление Telegram:", data.description);
+                            console.error("Не удалось отправить уведомление Telegram через Worker:", data.description);
                             VIEW.showNotification(`Ошибка отправки уведомления Telegram: ${data.description}`, "error");
                         } else {
-                            console.log("Уведомление Telegram успешно отправлено.");
+                            console.log("Уведомление Telegram успешно отправлено через Worker.");
                         }
                     } catch (error) {
-                        console.error("Ошибка при отправке уведомления Telegram:", error);
-                        VIEW.showNotification("Произошла ошибка при отправке уведомления Telegram.", "error");
+                        console.error("Ошибка при отправке уведомления Telegram через Worker:", error);
+                        VIEW.showNotification("Произошла ошибка при отправке уведомления Telegram через Worker.", "error");
                     }
                 },
                 // --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
@@ -1657,7 +1655,7 @@
 
                 // Обновление состояния кнопки "Добавить"
                 if (this.addPersonBtn) {
-                    this.addPersonBtn.disabled = STATE.userRole !== 'admin';
+                    this.addPersonBtn.disabled = STATE.userRole === 'admin' ? false : true; // Only admin can add
                     this.addPersonBtn.title = STATE.userRole === 'admin' ? "" : "Только администратор может добавлять сотрудников";
                 }
             };
