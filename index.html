@@ -82,16 +82,16 @@
                         "1": [{ person: "Ребраков Т.В.", shift: "8" }, { person: "Кузавлев П.С.", shift: "ДС" }],
                     }
                 },
-                // Конфигурация Firebase теперь загружается из глобальной переменной __firebase_config
-                // FIREBASE_CONFIG: {
-                //     apiKey: "AIzaSyBrfimxAJC-fN4aThvXH_B4jMWDA4pwysk",
-                //     authDomain: "ik2grafik.firebaseapp.com",
-                //     projectId: "ik2grafik",
-                //     storageBucket: "ik2grafik.firebasestorage.app",
-                //     messagingSenderId: "141207090372",
-                //     appId: "1:141207090372:web:b292ee339a23640027c591",
-                //     measurementId: "G-CSVDH3P8V1"
-                // }
+                // Hardcoded Firebase configuration for local testing
+                FIREBASE_CONFIG: {
+                    apiKey: "AIzaSyBrfimxAJC-fN4aThvXH_B4jMWDA4pwysk",
+                    authDomain: "ik2grafik.firebaseapp.com",
+                    projectId: "ik2grafik",
+                    storageBucket: "ik2grafik.firebasestorage.app",
+                    messagingSenderId: "141207090372",
+                    appId: "1:141207090372:web:b292ee339a23640027c591",
+                    measurementId: "G-CSVDH3P8V1"
+                }
             };
 
             /**
@@ -186,8 +186,22 @@
 
                 async initFirebase() {
                     try {
-                        // Загружаем конфигурацию Firebase из глобальной переменной, предоставленной средой Canvas
-                        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+                        let firebaseConfig = CONFIG.FIREBASE_CONFIG; // По умолчанию используем жестко закодированную конфигурацию
+
+                        // Если __firebase_config определена (т.е. мы в среде Canvas), пытаемся ее использовать
+                        if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                            try {
+                                const parsedConfig = JSON.parse(__firebase_config);
+                                // Используем распарсенную конфигурацию, только если она является действительным объектом с ключами
+                                if (parsedConfig && Object.keys(parsedConfig).length > 0) {
+                                    firebaseConfig = parsedConfig;
+                                } else {
+                                    console.warn("Parsed __firebase_config is empty or invalid, falling back to hardcoded config.");
+                                }
+                            } catch (e) {
+                                console.warn("Could not parse __firebase_config, falling back to hardcoded config:", e);
+                            }
+                        }
 
                         if (!firebaseConfig || Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey || !firebaseConfig.projectId) {
                             console.error("Firebase config is missing or invalid. Config:", firebaseConfig);
@@ -216,7 +230,7 @@
                     }
                     try {
                         console.log("Attempting Firebase authentication...");
-                        // Используем __initial_auth_token, если доступен, иначе анонимный вход
+                        // Используем __initial_auth_token, если доступен (для Canvas), иначе анонимный вход
                         if (typeof __initial_auth_token !== 'undefined') {
                             const userCredential = await signInWithCustomToken(STATE.auth, __initial_auth_token);
                             STATE.currentUserId = userCredential.user.uid;
@@ -504,38 +518,21 @@
                     const assignment = { person, shift: 'ДС' }; // Duty is always 'ДС'
 
                     const allDayAssignments = this.getAllDayAssignments(currentMonth, day);
-                    const existingDsAssignment = allDayAssignments.find(a => a.shift === 'ДС' && a.person !== person);
+                    const existingDsAssignment = allDayAssignments.find(a => a.shift === 'ДС' && a.person === person); // Changed to check for same person
 
                     if (existingDsAssignment) {
-                        const confirmed = await VIEW.showConfirmModal(`На ${day} число уже назначен "${existingDsAssignment.person}" на смену "ДС". Заменить его на "${person}"?`);
-                        if (!confirmed) {
-                            VIEW.closeModal();
-                            return;
-                        }
-                        // Remove existing DS assignment from wherever it is
-                        if (STATE.duties[currentMonth] && STATE.duties[currentMonth][dayKey] === existingDsAssignment.person) {
-                            delete STATE.duties[currentMonth][dayKey];
-                        }
-                        if (STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][dayKey])) {
-                            STATE.techDuties[currentMonth][dayKey] = STATE.techDuties[currentMonth][dayKey].filter(a => !(a.person === existingDsAssignment.person && a.shift === 'ДС'));
-                            if (STATE.techDuties[currentMonth][dayKey].length === 0) delete STATE.techDuties[currentMonth][dayKey];
-                        }
-                        if (STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][dayKey])) {
-                            STATE.generalSchedule[currentMonth][dayKey] = STATE.generalSchedule[currentMonth][dayKey].filter(a => !(a.person === existingDsAssignment.person && a.shift === 'ДС'));
-                            if (STATE.generalSchedule[currentMonth][dayKey].length === 0) delete STATE.generalSchedule[currentMonth][dayKey];
-                        }
+                        VIEW.showNotification(`На ${day} число уже назначен "${existingDsAssignment.person}" на смену "ДС".`, 'info');
+                        return;
                     }
-
+                    
+                    // Check for night before for the *newly assigned* person
                     const prevDay = (parseInt(day, 10) - 1).toString();
                     let wasNightBefore = false;
-                    // Check for night duty for the *newly assigned* person
-                    if (person !== CONFIG.NO_DUTY_LABEL) {
-                        const prevDayAssignments = this.getAllDayAssignments(currentMonth, prevDay);
-                        wasNightBefore = prevDayAssignments.some(a => a.person === person && (a.shift === 'Ночь караул' || a.shift === 'НК'));
-                    }
-
+                    const prevDayAssignments = this.getAllDayAssignments(currentMonth, prevDay);
+                    wasNightBefore = prevDayAssignments.some(a => a.person === person && (a.shift === 'Ночь караул' || a.shift === 'НК'));
+                    
                     if (wasNightBefore && assignment.shift !== 'Отсыпной' && assignment.shift !== 'О' && assignment.shift !== 'Выходной' && assignment.shift !== 'В') {
-                        const confirmed = await VIEW.showConfirmModal(`${person} был на 'Ночь караул' накануне. Вы уверены, что хотите лишить его отдыха и поставить на смену '${assignment.shift}'? Это не рекомендуется!`);
+                        const confirmed = await VIEW.showConfirmModal(`${person} был на 'Ночь караул' накануне. Выверены, что хотите лишить его отдыха и поставить на смену '${assignment.shift}'? Это не рекомендуется!`);
                         if (!confirmed) {
                             VIEW.closeModal();
                             return;
@@ -582,29 +579,14 @@
                     // Check for existing 'ДС' if the new assignment is 'ДС'
                     if (shift === 'ДС') {
                         const allDayAssignments = this.getAllDayAssignments(currentMonth, day);
-                        const existingDsAssignment = allDayAssignments.find(a => a.shift === 'ДС' && a.person !== person);
+                        const existingDsAssignment = allDayAssignments.find(a => a.shift === 'ДС' && a.person === person);
 
                         if (existingDsAssignment) {
-                            const confirmed = await VIEW.showConfirmModal(`На ${day} число уже назначен "${existingDsAssignment.person}" на смену "ДС". Заменить его на "${person}"?`);
-                            if (!confirmed) {
-                                VIEW.showNotification('Назначение отменено.', 'info');
-                                return;
-                            }
-                            // Remove existing DS assignment from wherever it is
-                            if (STATE.duties[currentMonth] && STATE.duties[currentMonth][dayKey] === existingDsAssignment.person) {
-                                delete STATE.duties[currentMonth][dayKey];
-                            }
-                            if (STATE.techDuties[currentMonth] && Array.isArray(STATE.techDuties[currentMonth][dayKey])) {
-                                STATE.techDuties[currentMonth][dayKey] = STATE.techDuties[currentMonth][dayKey].filter(a => !(a.person === existingDsAssignment.person && a.shift === 'ДС'));
-                                if (STATE.techDuties[currentMonth][dayKey].length === 0) delete STATE.techDuties[currentMonth][dayKey];
-                            }
-                            if (STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][dayKey])) {
-                                STATE.generalSchedule[currentMonth][dayKey] = STATE.generalSchedule[currentMonth][dayKey].filter(a => !(a.person === existingDsAssignment.person && a.shift === 'ДС'));
-                                if (STATE.generalSchedule[currentMonth][dayKey].length === 0) delete STATE.generalSchedule[currentMonth][dayKey];
-                            }
+                            VIEW.showNotification(`На ${day} число уже назначен "${existingDsAssignment.person}" на смену "ДС".`, 'info');
+                            return;
                         }
                     }
-
+                    
                     // Check for night before for the *newly assigned* person
                     const prevDay = (parseInt(day, 10) - 1).toString();
                     let wasNightBefore = false;
@@ -908,8 +890,7 @@
                         let chatHistory = [];
                         chatHistory.push({ role: "user", parts: [{ text: prompt }] });
                         const payload = { contents: chatHistory };
-                        // API Key for Gemini API is handled by the Canvas environment, no need to hardcode
-                        const apiKey = ""; 
+                        const apiKey = ""; // API Key for Gemini API is handled by the Canvas environment, no need to hardcode
                         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
                         
                         const response = await fetch(apiUrl, {
@@ -2496,7 +2477,7 @@
         .assignment-controls select, .assignment-controls input {
             padding: 10px;
             border-radius: 8px;
-            border: 1px solid var(--bg-accent);
+            border: 1px solid var(--border-accent);
             background: var(--bg-main);
             color: var(--text-main);
         }
@@ -2600,7 +2581,7 @@
                 font-size: var(--font-size-sm); /* Even smaller font for day number */
             }
             .day-entry {
-                font-size: var(--font-size-xs); /* Even smaller font for entries */
+                font-size: 6px; /* Even smaller for entries */
             }
             .calendar-grid {
                 gap: 0px; /* No gap */
