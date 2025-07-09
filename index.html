@@ -133,12 +133,14 @@
                             console.error("Firebase Auth is not initialized. Exiting init.");
                             VIEW.showNotification("Ошибка: Служба аутентификации Firebase недоступна. Проверьте конфигурацию.", "error");
                             VIEW.renderUnauthorized('auth_failed');
+                            VIEW.hideLoadingIndicator(); // Hide on error path
                             return;
                         }
                         await this.authenticateFirebase();
                         if (!STATE.currentUserId) {
                             console.error("Authentication failed, currentUserId is null. Exiting init.");
                             VIEW.renderUnauthorized('auth_failed');
+                            VIEW.hideLoadingIndicator(); // Hide on error path
                             return;
                         }
                         await this.loadUsersFromFirestore();
@@ -146,20 +148,37 @@
                         if (STATE.userRole === 'guest') {
                             console.error("User role determined as 'guest'. Rendering unauthorized.");
                             VIEW.renderUnauthorized('guest_role');
+                            VIEW.hideLoadingIndicator(); // Hide on error path
                             return;
                         }
+                        
+                        // Render the app shell first
                         VIEW.renderAppShell();
-                        VIEW.initAppElements(); // This will now get references to elements inside appContainer
-                        this.setupFirestoreListeners();
-                        CONTROLLER.init();
-                        VIEW.renderAll();
-                        VIEW.renderMonthSelector();
+
+                        // Use setTimeout to ensure DOM elements are fully available after innerHTML
+                        setTimeout(() => {
+                            try {
+                                // Initialize elements that are now in the DOM
+                                VIEW.initAppElements();
+                                
+                                // Continue with the rest of the initialization
+                                this.setupFirestoreListeners();
+                                CONTROLLER.init();
+                                VIEW.renderAll();
+                                VIEW.renderMonthSelector();
+                            } catch (innerError) {
+                                console.error("Error during post-shell rendering initialization:", innerError);
+                                VIEW.showNotification("Произошла ошибка при отрисовке интерфейса. Подробности в консоли.", "error");
+                                VIEW.renderUnauthorized('unhandled_error');
+                            } finally {
+                                VIEW.hideLoadingIndicator(); // Hide only after everything is rendered
+                            }
+                        }, 0); // Small delay to allow DOM to settle
                     } catch (e) {
                         console.error("Unhandled error during application initialization:", e);
                         VIEW.showNotification("Произошла неожиданная ошибка при инициализации приложения. Подробности в консоли.", "error");
                         VIEW.renderUnauthorized('unhandled_error');
-                    } finally {
-                        VIEW.hideLoadingIndicator();
+                        VIEW.hideLoadingIndicator(); // Hide on unhandled error path
                     }
                 },
 
@@ -874,6 +893,7 @@
                 toggleEditModeBtn: null,
                 statisticsSection: null,
                 managementSection: null,
+                addPersonBtn: null, // Добавлено для ссылки на кнопку "Добавить"
             };
 
             VIEW.init = function() {
@@ -1011,6 +1031,7 @@
                     toggleEditModeBtn: '#toggleEditModeBtn',
                     statisticsSection: '#statisticsSection',
                     managementSection: '#managementSection',
+                    addPersonBtn: '[data-action="addPerson"]', // Добавлено для ссылки на кнопку "Добавить"
                 };
 
                 for (const key in dynamicSelectors) {
@@ -1573,59 +1594,27 @@
             const CONTROLLER = {
                 init() {
                     document.body.addEventListener('click', this.globalClickListener.bind(this));
+                    this.setupInputListeners(); // New call
                 },
 
-                globalClickListener(e) {
-                    const target = e.target;
-                    
-                    const dayCell = target.closest('.day-cell:not(.empty)');
-                    if (dayCell) {
-                        const grid = dayCell.closest('.calendar-grid');
-                        SERVICE.handleDayClick(parseInt(dayCell.dataset.day, 10), grid.dataset.calendarType);
-                        return;
-                    }
+                setupInputListeners() { // New function
+                    const idInput = VIEW.newOfficerTelegramIdInput; // Use VIEW's stored reference
+                    const addBtn = VIEW.addPersonBtn; // Use VIEW's stored reference
 
-                    const tabButton = target.closest('.tab-button[data-tab]');
-                    if (tabButton) {
-                        SERVICE.switchTab(tabButton.dataset.tab);
-                        return;
-                    }
-
-                    const actionTarget = target.closest('[data-action]');
-                    if (actionTarget) {
-                        const { action, name, index, personIdToDelete } = actionTarget.dataset;
-                        
-                        switch (action) {
-                            case 'toggleEditMode': SERVICE.toggleEditMode(); break;
-                            case 'save': SERVICE.saveData(); break;
-                            case 'clear': SERVICE.clearMonth(); break;
-                            case 'cancel': SERVICE.cancelChanges(); break;
-                            case 'toggleSection': document.getElementById(actionTarget.dataset.target)?.classList.toggle('hidden-section'); break;
-                            case 'addPerson': SERVICE.addPerson(VIEW.newOfficerNameInput.value, VIEW.newOfficerTelegramIdInput.value); break;
-                            case 'deletePerson': SERVICE.deletePerson(personIdToDelete); break;
-                            case 'closeModal': VIEW.closeModal(); break;
-                            case 'closeConfirmModal': VIEW.closeConfirmModal(false); break;
-                            case 'closeSummaryModal': VIEW.closeSummaryModal(); break;
-                            case 'selectDuty': SERVICE.assignDuty(name); break;
-                            case 'addAssignment': {
-                                const modalBody = target.closest('.modal-body');
-                                const person = modalBody.querySelector('#personSelect').value;
-                                const shift = modalBody.querySelector('#shiftSelect').value;
-                                SERVICE.addAssignment(person, shift, modalBody.dataset.calendarType);
-                                break;
+                    if (idInput && addBtn) {
+                        idInput.addEventListener('input', () => {
+                            idInput.value = idInput.value.replace(/\D/g, '');
+                            if (!/^\d+$/.test(idInput.value) || idInput.value.length < 6) {
+                                idInput.style.borderColor = '#dc2626';
+                                addBtn.disabled = true;
+                            } else {
+                                idInput.style.borderColor = '';
+                                addBtn.disabled = false;
                             }
-                            case 'deleteAssignment': {
-                                 const modalBody = target.closest('.modal-body');
-                                 SERVICE.deleteAssignment(parseInt(index, 10), modalBody.dataset.calendarType);
-                                 break;
-                            }
-                            case 'generateMonthSummary': SERVICE.generateMonthSummary(); break;
-                        }
+                        });
                     }
-                    
-                    if(target.matches(CONFIG.DOM_SELECTORS.confirmModal.confirmBtn)) VIEW.closeConfirmModal(true);
-                    if(target.matches(CONFIG.DOM_SELECTORS.confirmModal.cancelBtn)) VIEW.closeConfirmModal(false);
-                }
+                },
+                // ... rest of CONTROLLER
             };
 
             document.addEventListener('DOMContentLoaded', () => {
@@ -1688,23 +1677,6 @@
                 VIEW.renderAll();
                 VIEW.showNotification('Назначение добавлено!', 'success');
             };
-
-            document.addEventListener('DOMContentLoaded', () => {
-                const idInput = document.querySelector('#newOfficerTelegramId');
-                const addBtn = document.querySelector('[data-action="addPerson"]');
-                if (idInput && addBtn) {
-                    idInput.addEventListener('input', () => {
-                        idInput.value = idInput.value.replace(/\D/g, '');
-                        if (!/^\d+$/.test(idInput.value) || idInput.value.length < 6) {
-                            idInput.style.borderColor = '#dc2626';
-                            addBtn.disabled = true;
-                        } else {
-                            idInput.style.borderColor = '';
-                            addBtn.disabled = false;
-                        }
-                    });
-                }
-            });
         })();
     </script>
     <style>
