@@ -91,7 +91,11 @@
                     messagingSenderId: "141207090372",
                     appId: "1:141207090372:web:b292ee339a23640027c591",
                     measurementId: "G-CSVDH3P8V1"
-                }
+                },
+                // --- НАСТРОЙКИ TELEGRAM БОТА ДЛЯ УВЕДОМЛЕНИЙ ---
+                TELEGRAM_BOT_TOKEN: "YOUR_TELEGRAM_BOT_TOKEN_HERE", // !!! ВАЖНО: Замените на токен вашего бота. Никогда не храните токен бота в открытом коде в продакшене! Используйте Firebase Cloud Functions или другой бэкенд для безопасности.
+                TELEGRAM_ADMIN_CHAT_ID: "670669284", // Ваш Telegram ID, куда бот будет отправлять уведомления (совпадает с DEFAULT_ADMIN_ID)
+                // --- КОНЕЦ НАСТРОЕК TELEGRAM БОТА ---
             };
 
             /**
@@ -147,14 +151,13 @@
                         }
                         await this.loadUsersFromFirestore();
                         this.determineUserRole();
-                        // --- НАЧАЛО ИЗМЕНЕНИЙ ДЛЯ ТЕСТИРОВАНИЯ НА ТЕЛЕФОНЕ (ВОЗВРАЩЕНИЕ ПРОВЕРКИ РОЛИ) ---
+                        // Проверка роли пользователя. Если гость, показываем сообщение об ограничении доступа.
                         if (STATE.userRole === 'guest') {
                             console.error("User role determined as 'guest'. Rendering unauthorized.");
                             VIEW.renderUnauthorized('guest_role');
                             VIEW.hideLoadingIndicator(); // Hide on error path
                             return;
                         }
-                        // --- КОНЕЦ ИЗМЕНЕНИЙ ДЛЯ ТЕСТИРОВАНИЯ НА ТЕЛЕФОНЕ ---
                         
                         // Render the app shell first
                         VIEW.renderAppShell();
@@ -274,6 +277,7 @@
                         const currentTelegramId = STATE.telegramUser.id.toString();
                         const telegramUserName = `${STATE.telegramUser.first_name} ${STATE.telegramUser.last_name || ''}`.trim();
 
+                        // Убеждаемся, что администратор по умолчанию существует и имеет правильную роль
                         if (!STATE.users[CONFIG.DEFAULT_ADMIN_ID]) {
                             STATE.users[CONFIG.DEFAULT_ADMIN_ID] = {
                                 name: CONFIG.DEFAULT_ADMIN_NAME,
@@ -285,13 +289,21 @@
                             await updateDoc(doc(usersRef, CONFIG.DEFAULT_ADMIN_ID), { role: 'admin' });
                         }
 
+                        // Если текущий пользователь Telegram не является администратором по умолчанию
+                        // и его нет в списке пользователей, добавляем его как гостя и отправляем уведомление.
                         if (!STATE.users[currentTelegramId] && currentTelegramId !== CONFIG.DEFAULT_ADMIN_ID) {
                             STATE.users[currentTelegramId] = {
                                 name: telegramUserName || `Пользователь ${currentTelegramId}`,
                                 role: 'guest'
                             };
                             await setDoc(doc(usersRef, currentTelegramId), STATE.users[currentTelegramId]);
+                            // Отправляем уведомление администратору о новом госте
+                            SERVICE.sendAdminNotification(
+                                `Новый пользователь зарегистрировался: <b>${telegramUserName}</b> (ID: <code>${currentTelegramId}</code>). ` +
+                                `Роль: Гость. Пожалуйста, измените его роль в разделе "Управление персоналом" в приложении.`
+                            );
                         } else if (STATE.users[currentTelegramId] && STATE.users[currentTelegramId].name !== telegramUserName) {
+                            // Обновляем имя пользователя, если оно изменилось
                             await updateDoc(doc(usersRef, currentTelegramId), { name: telegramUserName });
                             STATE.users[currentTelegramId].name = telegramUserName;
                         }
@@ -309,6 +321,40 @@
                         throw e;
                     }
                 },
+
+                // --- НОВАЯ ФУНКЦИЯ ДЛЯ ОТПРАВКИ УВЕДОМЛЕНИЙ АДМИНИСТРАТОРУ ---
+                async sendAdminNotification(message) {
+                    if (!CONFIG.TELEGRAM_BOT_TOKEN || CONFIG.TELEGRAM_BOT_TOKEN === "YOUR_TELEGRAM_BOT_TOKEN_HERE" || !CONFIG.TELEGRAM_ADMIN_CHAT_ID) {
+                        console.warn("Telegram Bot Token или Admin Chat ID не настроены. Уведомление пропущено.");
+                        VIEW.showNotification("Уведомления Telegram-бота не настроены. Проверьте CONFIG.", "warning");
+                        return;
+                    }
+                    const url = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`;
+                    const payload = {
+                        chat_id: CONFIG.TELEGRAM_ADMIN_CHAT_ID,
+                        text: message,
+                        parse_mode: 'HTML' // Позволяет использовать HTML-теги, например <b> для жирного текста
+                    };
+
+                    try {
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        const data = await response.json();
+                        if (!data.ok) {
+                            console.error("Не удалось отправить уведомление Telegram:", data.description);
+                            VIEW.showNotification(`Ошибка отправки уведомления Telegram: ${data.description}`, "error");
+                        } else {
+                            console.log("Уведомление Telegram успешно отправлено.");
+                        }
+                    } catch (error) {
+                        console.error("Ошибка при отправке уведомления Telegram:", error);
+                        VIEW.showNotification("Произошла ошибка при отправке уведомления Telegram.", "error");
+                    }
+                },
+                // --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
 
                 determineUserRole() {
                     const currentTelegramId = STATE.telegramUser.id.toString();
@@ -360,11 +406,11 @@
                             STATE.generalSchedule[STATE.currentMonth] = data.generalSchedule || {};
                             STATE.colors = data.colors || {};
                         } else {
-                            if (STATE.currentMonth === 6) {
+                            if (STATE.currentMonth === 6) { // Инициализация данных для июля, если их нет
                                 STATE.duties[6] = { ...CONFIG.INITIAL_DATA.julyDuties };
                                 STATE.techDuties[6] = JSON.parse(JSON.stringify(CONFIG.INITIAL_DATA.technicianDuties));
                                 STATE.generalSchedule[6] = JSON.parse(JSON.stringify(CONFIG.INITIAL_DATA.generalScheduleData));
-                                this.saveData();
+                                this.saveData(); // Сохраняем начальные данные
                             }
                         }
                         STATE.hasUnsavedChanges = false;
