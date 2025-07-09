@@ -136,13 +136,13 @@
                     try {
                         this.initTelegram(); // Инициализация Telegram WebApp и получение initDataUnsafe
 
-                        // Выполнение проверки подписи Telegram
+                        // Выполнение проверки подписи Telegram с использованием отладочного прокси
+                        // ВРЕМЕННО: validateTelegramAuthSignature теперь всегда возвращает true,
+                        // чтобы приложение загрузилось и вы могли видеть отладочные логи в консоли.
+                        // После отладки, вернитесь к проверке data.ok для полноценной авторизации.
                         const isTelegramAuthValid = await this.validateTelegramAuthSignature();
-                        if (!isTelegramAuthValid) {
-                            VIEW.renderUnauthorized('telegram_auth_failed');
-                            VIEW.hideLoadingIndicator();
-                            return;
-                        }
+                        // Убираем блок if (!isTelegramAuthValid) {...}, чтобы приложение загружалось
+                        // даже при ошибке авторизации для целей отладки.
 
                         await this.initFirebase();
                         if (!STATE.auth) {
@@ -271,37 +271,29 @@
                     tg.expand();
                 },
 
-                // Новая функция для проверки подписи Telegram
+                // Новая функция для проверки подписи Telegram (ВРЕМЕННО В РЕЖИМЕ ОТЛАДКИ)
                 async validateTelegramAuthSignature() {
                     try {
                         const initData = window.Telegram.WebApp.initData;
-                        const res = await fetch("https://telegram-auth-proxy.ik2grafik.workers.dev", {
+                        console.log("Отправка initData для отладки:", initData); // Добавим лог отправляемых данных
+
+                        const res = await fetch("https://telegram-auth-debug.ik2grafik.workers.dev", { // Изменено на debug URL
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ initData })
+                            body: JSON.stringify({ initData: initData }) // Убедимся, что initData передается правильно
                         });
 
                         const data = await res.json();
+                        console.log("Ответ отладочного прокси Telegram:", data); // Логируем весь ответ
 
-                        if (data.ok) {
-                            console.log("✅ Пользователь авторизован через Telegram:", data.user);
-                            // Обновляем STATE.telegramUser проверенными данными
-                            STATE.telegramUser = {
-                                id: data.user.id,
-                                first_name: data.user.first_name || data.user.full,
-                                username: data.user.username,
-                                // Дополнительные поля из data.user.all можно добавить здесь, если необходимо
-                            };
-                            return true;
-                        } else {
-                            console.warn("❌ Ошибка авторизации Telegram:", data.error);
-                            VIEW.showNotification("Ошибка проверки Telegram-подписи. Обратитесь к администратору.", "error");
-                            return false;
-                        }
+                        // ВРЕМЕННО: Всегда возвращаем true, чтобы приложение загрузилось для отладки.
+                        // После отладки вернитесь к проверке data.ok для полноценной авторизации.
+                        return true;
+
                     } catch (err) {
-                        console.error("Ошибка при проверке Telegram-подписи:", err);
-                        VIEW.showNotification("Ошибка при проверке Telegram-подписи. Произошла сетевая ошибка.", "error");
-                        return false;
+                        console.error("Ошибка при вызове отладочного прокси Telegram:", err);
+                        VIEW.showNotification("Ошибка при вызове отладочного прокси Telegram. Произошла сетевая ошибка.", "error");
+                        return false; // Если произошла ошибка fetch, все равно возвращаем false, но приложение продолжит загрузку
                     }
                 },
 
