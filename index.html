@@ -149,7 +149,7 @@
                             VIEW.hideLoadingIndicator(); // Hide on error path
                             return;
                         }
-                        await this.loadUsersFromFirestore();
+                        await this.loadUsersFromFirestore(); // Эта функция теперь будет адаптирована
                         this.determineUserRole();
                         // Проверка роли пользователя. Если гость, показываем сообщение об ограничении доступа.
                         if (STATE.userRole === 'guest') {
@@ -269,56 +269,75 @@
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     try {
                         STATE.users = {};
-                        const querySnapshot = await getDocs(usersRef);
-                        querySnapshot.forEach(doc => {
-                            // Добавлена валидация данных при загрузке
-                            if (doc.data().name && doc.data().role) {
-                                STATE.users[doc.id] = doc.data();
-                            } else {
-                                console.warn(`Пропущен некорректный документ пользователя: ${doc.id}`, doc.data());
-                            }
-                        });
-
                         const currentTelegramId = STATE.telegramUser.id.toString();
                         const telegramUserName = SERVICE.sanitizeInput(`${STATE.telegramUser.first_name} ${STATE.telegramUser.last_name || ''}`).trim();
 
-                        // Убеждаемся, что администратор по умолчанию существует и имеет правильную роль
-                        if (!STATE.users[CONFIG.DEFAULT_ADMIN_ID]) {
-                            STATE.users[CONFIG.DEFAULT_ADMIN_ID] = {
-                                name: CONFIG.DEFAULT_ADMIN_NAME,
-                                role: 'admin'
-                            };
-                            await setDoc(doc(usersRef, CONFIG.DEFAULT_ADMIN_ID), STATE.users[CONFIG.DEFAULT_ADMIN_ID]);
-                        } else if (STATE.users[CONFIG.DEFAULT_ADMIN_ID].role !== 'admin') {
-                            STATE.users[CONFIG.DEFAULT_ADMIN_ID].role = 'admin';
-                            await updateDoc(doc(usersRef, CONFIG.DEFAULT_ADMIN_ID), { role: 'admin' });
+                        // Шаг 1: Загружаем документ текущего пользователя
+                        const currentUserDocRef = doc(usersRef, currentTelegramId);
+                        const currentUserDocSnap = await getDoc(currentUserDocRef);
+                        
+                        let currentUserData = null;
+                        if (currentUserDocSnap.exists()) {
+                            currentUserData = currentUserDocSnap.data();
+                            STATE.users[currentUserDocSnap.id] = currentUserData;
                         }
 
-                        // Если текущий пользователь Telegram не является администратором по умолчанию
-                        // и его нет в списке пользователей, добавляем его как гостя и отправляем уведомление.
-                        if (!STATE.users[currentTelegramId] && currentTelegramId !== CONFIG.DEFAULT_ADMIN_ID) {
-                            // Проверка уникальности Telegram ID перед созданием нового пользователя
-                            const existingUserDoc = await getDoc(doc(usersRef, currentTelegramId));
-                            if (!existingUserDoc.exists()) {
+                        // Шаг 2: Обеспечиваем существование и корректную роль для DEFAULT_ADMIN_ID
+                        const defaultAdminDocRef = doc(usersRef, CONFIG.DEFAULT_ADMIN_ID);
+                        const defaultAdminDocSnap = await getDoc(defaultAdminDocRef);
+
+                        if (!defaultAdminDocSnap.exists()) {
+                            // Создаем default admin, если его нет
+                            await setDoc(defaultAdminDocRef, {
+                                name: CONFIG.DEFAULT_ADMIN_NAME,
+                                role: 'admin',
+                                active: true
+                            });
+                            STATE.users[CONFIG.DEFAULT_ADMIN_ID] = { name: CONFIG.DEFAULT_ADMIN_NAME, role: 'admin', active: true };
+                        } else if (defaultAdminDocSnap.data().role !== 'admin') {
+                            // Обновляем роль default admin, если она некорректна
+                            await updateDoc(defaultAdminDocRef, { role: 'admin' });
+                            STATE.users[CONFIG.DEFAULT_ADMIN_ID] = { ...defaultAdminDocSnap.data(), role: 'admin' };
+                        } else {
+                            STATE.users[CONFIG.DEFAULT_ADMIN_ID] = defaultAdminDocSnap.data();
+                        }
+
+                        // Шаг 3: Определяем роль текущего пользователя после потенциального создания/обновления админа
+                        // Это важно, так как текущий пользователь может быть DEFAULT_ADMIN_ID
+                        this.determineUserRole(); 
+
+                        // Шаг 4: Если текущий пользователь является администратором, загружаем всех пользователей
+                        if (STATE.userRole === 'admin') {
+                            const querySnapshot = await getDocs(usersRef);
+                            querySnapshot.forEach(doc => {
+                                if (doc.data().name && doc.data().role) {
+                                    STATE.users[doc.id] = doc.data();
+                                } else {
+                                    console.warn(`Пропущен некорректный документ пользователя: ${doc.id}`, doc.data());
+                                }
+                            });
+                        } else {
+                            // Если текущий пользователь не админ и его документа не было, создаем его как гостя
+                            if (!currentUserDocSnap.exists()) {
                                 STATE.users[currentTelegramId] = {
                                     name: telegramUserName || `Пользователь ${currentTelegramId}`,
-                                    role: 'guest'
+                                    role: 'guest',
+                                    active: true
                                 };
-                                await setDoc(doc(usersRef, currentTelegramId), STATE.users[currentTelegramId]);
-                                // Отправляем уведомление администратору о новом госте
+                                await setDoc(currentUserDocRef, STATE.users[currentTelegramId]);
                                 SERVICE.sendAdminNotification(
                                     `Новый пользователь зарегистрировался: <b>${telegramUserName}</b> (ID: <code>${currentTelegramId}</code>). ` +
                                     `Роль: Гость. Пожалуйста, измените его роль в разделе "Управление персоналом" в приложении.`
                                 );
-                            } else {
-                                console.warn(`Пользователь с ID ${currentTelegramId} уже существует, но не был в STATE.users. Обновление STATE.users.`);
-                                STATE.users[currentTelegramId] = existingUserDoc.data();
+                            } else if (currentUserData && currentUserData.name !== telegramUserName) {
+                                // Обновляем имя пользователя, если оно изменилось
+                                await updateDoc(currentUserDocRef, { name: telegramUserName });
+                                STATE.users[currentTelegramId].name = telegramUserName;
                             }
-                        } else if (STATE.users[currentTelegramId] && STATE.users[currentTelegramId].name !== telegramUserName) {
-                            // Обновляем имя пользователя, если оно изменилось
-                            await updateDoc(doc(usersRef, currentTelegramId), { name: telegramUserName });
-                            STATE.users[currentTelegramId].name = telegramUserName;
                         }
+
+                        // Обновляем списки офицеров и техников на основе актуальных данных пользователей
+                        this.determineUserRole(); 
 
                         const allInitialPeople = [...new Set([...CONFIG.INITIAL_DATA.officers, ...CONFIG.INITIAL_DATA.technicians])];
                         for (const name of allInitialPeople) {
@@ -414,19 +433,45 @@
                     }
 
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
-                    STATE.unsubscribeListeners.push(onSnapshot(usersRef, (snapshot) => {
-                        snapshot.docChanges().forEach(change => {
-                            STATE.users[change.doc.id] = change.doc.data();
-                        });
-                        this.determineUserRole();
-                        VIEW.renderManagementList();
-                        VIEW.renderUserInfo();
-                        // Обновляем состояние кнопок управления после изменения ролей
-                        CONTROLLER.setupInputListeners();
+                    // Слушатель для текущего пользователя (всегда разрешен)
+                    const currentUserDocRef = doc(usersRef, STATE.telegramUser.id.toString());
+                    STATE.unsubscribeListeners.push(onSnapshot(currentUserDocRef, (docSnapshot) => {
+                        if (docSnapshot.exists()) {
+                            STATE.users[docSnapshot.id] = docSnapshot.data();
+                            this.determineUserRole(); // Переопределяем роль, если изменился текущий пользователь
+                            VIEW.renderUserInfo(); // Обновляем информацию о пользователе
+                            VIEW.updateManagementSectionVisibility(); // Обновляем видимость секции управления
+                            CONTROLLER.setupInputListeners(); // Обновляем состояние кнопок
+                        } else {
+                            // Если документ текущего пользователя удален или не существует,
+                            // переводим его в роль гостя и перерендериваем UI.
+                            STATE.userRole = 'guest';
+                            VIEW.renderUnauthorized('guest_role');
+                        }
                     }, (error) => {
-                        console.error("Error listening to users:", error);
-                        VIEW.showNotification("Ошибка при прослушивании изменений пользователей.", "error");
+                        console.error("Error listening to current user document:", error);
+                        VIEW.showNotification("Ошибка при прослушивании изменений вашего профиля.", "error");
                     }));
+
+                    // Слушатель для всей коллекции пользователей (только для админов)
+                    // Этот слушатель будет активен только если пользователь является админом.
+                    // Если пользователь не админ, он не сможет получить доступ к этой коллекции,
+                    // и это не вызовет ошибку, так как мы не пытаемся получить все документы.
+                    if (STATE.userRole === 'admin') {
+                        STATE.unsubscribeListeners.push(onSnapshot(usersRef, (snapshot) => {
+                            snapshot.docChanges().forEach(change => {
+                                STATE.users[change.doc.id] = change.doc.data();
+                            });
+                            this.determineUserRole();
+                            VIEW.renderManagementList();
+                            VIEW.renderUserInfo();
+                            CONTROLLER.setupInputListeners();
+                        }, (error) => {
+                            console.error("Error listening to users collection:", error);
+                            VIEW.showNotification("Ошибка при прослушивании изменений коллекции пользователей.", "error");
+                        }));
+                    }
+
 
                     const monthDocRef = doc(collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.MONTHS_COLLECTION}`), `${STATE.year}_${STATE.currentMonth}`);
                     STATE.unsubscribeListeners.push(onSnapshot(monthDocRef, (docSnapshot) => {
@@ -503,7 +548,8 @@
                         
                         STATE.hasUnsavedChanges = false;
                         VIEW.showNotification('Изменения успешно сохранены!', 'success');
-                    } catch (e) {
+                    }
+                    catch (e) {
                         console.error("Error saving data to Firestore or validation failed:", e);
                         VIEW.showNotification(`Ошибка сохранения данных: ${e.message}`, 'error');
                     } finally {
@@ -2253,12 +2299,6 @@
         }
         .day-cell.weekend { background: var(--bg-weekend); }
         .day-cell.weekend:hover:not(:disabled) { background: #553c5d; }
-        .day-cell.empty {
-            background: var(--bg-main);
-            cursor: default;
-            box-shadow: none;
-            transform: none;
-        }
         .day-cell.current-day {
             border: 2px solid var(--border-accent);
             box-shadow: 0 0 15px var(--shadow-accent);
