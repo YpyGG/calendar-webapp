@@ -9,14 +9,14 @@
     <script type="module">
         // Импортируем необходимые модули Firebase
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Оборачиваем весь код в IIFE для создания замкнутой области видимости
         (function() {
             'use strict';
 
-            // Получаем ссылки на статические элементы DOM сразу
+            // Получаем ссылки на статические элементы DOM сразу для повышения производительности
             const loadingIndicatorElement = document.getElementById('loadingIndicator');
             const editModalOverlayElement = document.getElementById('editModalOverlay');
             const editModalTitleElement = document.getElementById('editModalTitle');
@@ -26,8 +26,6 @@
             const viewModalBodyElement = document.getElementById('viewModalBody');
             const confirmModalOverlayElement = document.getElementById('confirmModalOverlay');
             const confirmModalMessageElement = document.getElementById('confirmModalMessage');
-            const confirmModalConfirmBtnElement = document.getElementById('confirmModalConfirmBtn');
-            const confirmModalCancelBtnElement = document.getElementById('confirmModalCancelBtn');
             const summaryModalOverlayElement = document.getElementById('summaryModalOverlay');
             const summaryModalTitleElement = document.getElementById('summaryModalTitle');
             const summaryModalBodyElement = document.getElementById('summaryModalBody');
@@ -36,9 +34,8 @@
              * CONFIG: Константы и конфигурация приложения
              */
             const CONFIG = {
-                // Default Telegram ID for the admin (user's ID)
-                DEFAULT_ADMIN_ID: "670669284", // Должен совпадать с TELEGRAM_ADMIN_CHAT_ID
-                DEFAULT_ADMIN_NAME: "Y", // Имя администратора
+                DEFAULT_ADMIN_ID: "670669284", // ID администратора по умолчанию
+                DEFAULT_ADMIN_NAME: "Администратор", // Имя администратора по умолчанию
                 ROLE_NAMES: {
                     'admin': 'Администратор',
                     'boss': 'Начальник',
@@ -47,7 +44,6 @@
                 },
                 DOM_SELECTORS: {
                     container: '#appContainer',
-                    monthSelector: '#monthSelector', // This is now handled by custom dropdowns, but selector still exists
                     newOfficerName: '#newOfficerName',
                     newOfficerTelegramId: '#newOfficerTelegramId',
                     dutyCalendarGrid: '#dutyCalendarGrid',
@@ -57,11 +53,6 @@
                     currentOfficersList: '#currentOfficersList',
                     actionButtons: '#actionButtons',
                     tabNavigation: '#tabNavigation',
-                    // Removed loadingIndicator, editModal, viewModal, confirmModal, summaryModal from DOM_SELECTORS
-                    // as their elements are now directly referenced
-                    firebaseSettings: {
-                        section: '#firebaseSettingsSection',
-                    }
                 },
                 STORAGE_KEYS: {
                     USERS_COLLECTION: 'users',
@@ -74,16 +65,9 @@
                     officers: ["Морозов В.А.", "Ребраков Т.В.", "Костырин С.С.", "Бонадыков В.В.", "Бурлаков М.Ю.", "Артемьев А.М.", "Мефед И.С."],
                     technicians: ["Ребраков Т.В.", "Морозов В.А.", "Кузавлев П.С.", "Лебедев А.В.", "Денщиков А.А."],
                     julyDuties: { "1": "Ребраков Т.В.", "2": "Костырин С.С.", "3": "Морозов В.А.", "4": "Ребраков Т.В.", "6": "Костырин С.С.", "7": "Костырин С.С.", "8": "Ребраков Т.В.", "9": "Морозов В.А.", "10": "Морозов В.А.", "11": "Костырин С.С.", "12": "Ребраков Т.В.", "13": "Морозов В.А.", "14": "Костырин С.С.", "15": "Ребраков Т.В.", "16": "Морозов В.А.", "17": "Ребраков Т.В.", "18": "Ребраков Т.В.", "19": "Костырин С.С.", "20": "Морозов В.А.", "21": "Костырин С.С.", "22": "Ребраков Т.В.", "23": "Морозов В.А.", "24": "Костырин С.С.", "25": "Ребраков Т.В.", "26": "Морозов В.А.", "27": "Костырин С.С.", "28": "Костырин С.С.", "29": "Морозов В.А.", "30": "Костырин С.С.", "31": "Ребраков Т.В." },
-                    technicianDuties: {
-                        "1": [{person: "Кузавлев П.С.", shift: "8"}],
-                        "2": [{person: "Лебедев А.В.", shift: "8"}],
-                        "3": [{person: "Денщиков А.А.", shift: "8"}],
-                    },
-                    generalScheduleData: {
-                        "1": [{ person: "Ребраков Т.В.", shift: "8" }, { person: "Кузавлев П.С.", shift: "ДС" }],
-                    }
+                    technicianDuties: { "1": [{person: "Кузавлев П.С.", shift: "8"}], "2": [{person: "Лебедев А.В.", shift: "8"}], "3": [{person: "Денщиков А.А.", shift: "8"}], },
+                    generalScheduleData: { "1": [{ person: "Ребраков Т.В.", shift: "8" }, { person: "Кузавлев П.С.", shift: "ДС" }], }
                 },
-                // Hardcoded Firebase configuration for local testing
                 FIREBASE_CONFIG: {
                     apiKey: "AIzaSyBrfimxAJC-fN4aThvXH_B4jMWDA4pwysk",
                     authDomain: "ik2grafik.firebaseapp.com",
@@ -93,17 +77,16 @@
                     appId: "1:141207090372:web:b292ee339a23640027c591",
                     measurementId: "G-CSVDH3P8V1"
                 },
-                // --- НАСТРОЙКИ TELEGRAM БОТА ДЛЯ УВЕДОМЛЕНИЙ ---
-                // TELEGRAM_BOT_TOKEN и TELEGRAM_ADMIN_CHAT_ID теперь не хранятся здесь напрямую
-                // Они должны быть доступны через ваш Cloudflare Worker (telegram-auth-proxy.ik2grafik.workers.dev)
-                // --- КОНЕЦ НАСТРОЕК TELEGRAM БОТА ---
+                WORKER_URLS: {
+                    AUTH: "https://telegram-auth-proxy.ik2grafik.workers.dev",
+                    GEMINI: "https://gemini-proxy.ik2grafik.workers.dev"
+                }
             };
 
             /**
              * STATE: Единственный источник правды для состояния приложения.
              */
             const STATE = {
-                // Используем __app_id, предоставленный средой Canvas, или 'default-app-id' для локального тестирования
                 appId: typeof __app_id !== 'undefined' ? __app_id : 'default-app-id',
                 db: null,
                 auth: null,
@@ -131,105 +114,146 @@
              * SERVICE: "Мозг" приложения. Управляет состоянием и бизнес-логикой.
              */
             const SERVICE = {
+                // ОБНОВЛЕННЫЙ МЕТОД ИНИЦИАЛИЗАЦИИ
                 async init() {
                     VIEW.showLoadingIndicator();
                     try {
-                        this.initTelegram(); // Инициализация Telegram WebApp и получение initDataUnsafe
+                        // 1. Инициализация Telegram и получение данных пользователя
+                        this.initTelegram();
 
-                        // Откладываем проверку подписи Telegram, чтобы initData успел заполниться
-                        await new Promise(resolve => {
-                            setTimeout(async () => {
-                                const isTelegramAuthValid = await this.validateTelegramAuthSignature();
-                                if (!isTelegramAuthValid) {
-                                     console.warn("Telegram initData был недоступен или проверка подписи не удалась после задержки.");
-                                     // Если проверка подписи не прошла, рендерим ошибку авторизации Telegram
-                                     VIEW.renderUnauthorized('telegram_auth_failed');
-                                     VIEW.hideLoadingIndicator();
-                                     return; // Прерываем инициализацию, если Telegram авторизация не прошла
-                                }
-                                resolve(); // Разрешаем промис, чтобы продолжить инициализацию
-                            }, 500); // Задержка 500 мс
-                        });
+                        // 2. Валидация подписи Telegram через Worker
+                        const isTelegramAuthValid = await this.validateTelegramAuthSignature();
+                        if (!isTelegramAuthValid) {
+                            console.error("Проверка подписи Telegram не удалась.");
+                            VIEW.renderUnauthorized('telegram_auth_failed');
+                            VIEW.hideLoadingIndicator();
+                            return; // Прерываем инициализацию
+                        }
 
+                        // 3. Инициализация Firebase
                         await this.initFirebase();
-                        if (!STATE.auth) {
-                            console.error("Firebase Auth is not initialized. Exiting init.");
-                            VIEW.showNotification("Ошибка: Служба аутентификации Firebase недоступна. Проверьте конфигурацию.", "error");
-                            VIEW.renderUnauthorized('auth_failed');
-                            VIEW.hideLoadingIndicator(); // Hide on error path
+                        if (!STATE.auth || !STATE.db) {
+                            console.error("Инициализация Firebase не удалась.");
+                            VIEW.renderUnauthorized('firebase_init_failed');
+                            VIEW.hideLoadingIndicator();
                             return;
                         }
+
+                        // 4. Аутентификация в Firebase
                         await this.authenticateFirebase();
                         if (!STATE.currentUserId) {
-                            console.error("Authentication failed, currentUserId is null. Exiting init.");
+                            console.error("Аутентификация Firebase не удалась.");
                             VIEW.renderUnauthorized('auth_failed');
-                            VIEW.hideLoadingIndicator(); // Hide on error path
+                            VIEW.hideLoadingIndicator();
                             return;
                         }
-                        await this.loadUsersFromFirestore(); // Эта функция теперь будет адаптирована
+
+                        // 5. Загрузка пользователей и определение роли
+                        await this.loadUsersFromFirestore();
                         this.determineUserRole();
-                        // Проверка роли пользователя. Если гость, показываем сообщение об ограничении доступа.
+
+                        // 6. Проверка роли (гостям доступ запрещен)
                         if (STATE.userRole === 'guest') {
-                            console.error("User role determined as 'guest'. Rendering unauthorized.");
+                            console.log("Роль пользователя 'guest'. Доступ запрещен.");
                             VIEW.renderUnauthorized('guest_role');
-                            VIEW.hideLoadingIndicator(); // Hide on error path
+                            VIEW.hideLoadingIndicator();
                             return;
                         }
-                        
-                        // Render the app shell first
+
+                        // 7. Отрисовка основного интерфейса приложения
                         VIEW.renderAppShell();
 
-                        // Use setTimeout to ensure DOM elements are fully available after innerHTML
-                        setTimeout(() => {
+                        // 8. Инициализация элементов DOM и слушателей после отрисовки
+                        requestAnimationFrame(() => {
                             try {
-                                // Initialize elements that are now in the DOM
                                 VIEW.initAppElements();
-                                
-                                // Continue with the rest of the initialization
                                 this.setupFirestoreListeners();
                                 CONTROLLER.init();
                                 VIEW.renderAll();
-                                VIEW.renderMonthSelector();
                             } catch (innerError) {
-                                console.error("Error during post-shell rendering initialization:", innerError);
-                                VIEW.showNotification("Произошла ошибка при отрисовке интерфейса. Подробности в консоли.", "error");
+                                console.error("Ошибка во время инициализации после отрисовки:", innerError);
                                 VIEW.renderUnauthorized('unhandled_error');
                             } finally {
-                                VIEW.hideLoadingIndicator(); // Hide only after everything is rendered
+                                VIEW.hideLoadingIndicator();
                             }
-                        }, 0); // Small delay to allow DOM to settle
+                        });
+
                     } catch (e) {
-                        console.error("Unhandled error during application initialization:", e);
-                        VIEW.showNotification("Произошла неожиданная ошибка при инициализации приложения. Подробности в консоли.", "error");
+                        console.error("Необработанная ошибка во время инициализации приложения:", e);
                         VIEW.renderUnauthorized('unhandled_error');
-                        VIEW.hideLoadingIndicator(); // Hide on unhandled error path
+                        VIEW.hideLoadingIndicator();
+                    }
+                },
+
+                initTelegram() {
+                    const tg = window.Telegram.WebApp;
+                    tg.ready();
+                    STATE.telegramUser = tg.initDataUnsafe.user;
+                    if (!STATE.telegramUser) {
+                        console.warn("Данные пользователя Telegram WebApp недоступны, используется ID администратора для теста.");
+                        STATE.telegramUser = { id: parseInt(CONFIG.DEFAULT_ADMIN_ID), first_name: 'Тестовый', username: 'test_user' };
+                    }
+                    tg.expand();
+                },
+
+                // ОБНОВЛЕННАЯ ФУНКЦИЯ ВАЛИДАЦИИ
+                async validateTelegramAuthSignature() {
+                    try {
+                        const initDataString = window.Telegram.WebApp.initData;
+                        if (!initDataString || initDataString.trim() === '') {
+                            console.error("Ошибка: Telegram.WebApp.initData пуст.");
+                            return false;
+                        }
+
+                        // Парсим initData, чтобы извлечь компоненты
+                        const params = new URLSearchParams(initDataString);
+                        const hash = params.get('hash');
+                        const user = params.get('user'); // Это JSON-строка с данными пользователя
+                        const query_id = params.get('query_id');
+                        const auth_date = params.get('auth_date');
+
+                        const res = await fetch(CONFIG.WORKER_URLS.AUTH, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                initData: user,
+                                signature: hash,
+                                queryId: query_id,
+                                authDate: auth_date,
+                            })
+                        });
+
+                        const data = await res.json();
+                        if (!res.ok || !data.ok) {
+                            console.error("Ответ от прокси Telegram не ОК:", data);
+                            return false;
+                        }
+                        
+                        console.log("Подпись Telegram успешно проверена.");
+                        return true;
+
+                    } catch (err) {
+                        console.error("Критическая ошибка при вызове прокси Telegram:", err);
+                        return false;
                     }
                 },
 
                 async initFirebase() {
                     try {
-                        let firebaseConfig = CONFIG.FIREBASE_CONFIG; // По умолчанию используем жестко закодированную конфигурацию
-
-                        // Если __firebase_config определена (т.е. мы в среде Canvas), пытаемся ее использовать
+                        let firebaseConfig = CONFIG.FIREBASE_CONFIG;
                         if (typeof __firebase_config !== 'undefined' && __firebase_config) {
                             try {
                                 const parsedConfig = JSON.parse(__firebase_config);
-                                // Используем распарсенную конфигурацию, только если она является действительным объектом с ключами
                                 if (parsedConfig && Object.keys(parsedConfig).length > 0) {
                                     firebaseConfig = parsedConfig;
-                                } else {
-                                    console.warn("Parsed __firebase_config is empty or invalid, falling back to hardcoded config.");
-                                    VIEW.showNotification("Предупреждение: Конфигурация Firebase из Canvas пуста или недействительна. Используется жестко закодированная конфигурация.", "warning");
                                 }
                             } catch (e) {
-                                console.warn("Could not parse __firebase_config, falling back to hardcoded config:", e);
-                                VIEW.showNotification("Предупреждение: Не удалось разобрать конфигурацию Firebase из Canvas. Используется жестко закодированная конфигурация.", "warning");
+                                console.warn("Не удалось разобрать __firebase_config, используется жестко закодированная конфигурация:", e);
                             }
                         }
 
-                        if (!firebaseConfig || Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey || !firebaseConfig.projectId) {
-                            console.error("Firebase config is missing or invalid. Config:", firebaseConfig);
-                            VIEW.showNotification("Ошибка: Неверная конфигурация Firebase. Убедитесь, что Firebase настроен правильно.", "error");
+                        if (!firebaseConfig || !firebaseConfig.apiKey) {
+                            console.error("Конфигурация Firebase отсутствует или недействительна.");
                             STATE.db = null;
                             STATE.auth = null;
                             return;
@@ -238,23 +262,15 @@
                         STATE.db = getFirestore(app);
                         STATE.auth = getAuth(app);
                     } catch (e) {
-                        console.error("Error initializing Firebase:", e);
-                        VIEW.showNotification("Ошибка инициализации Firebase. Попробуйте позже.", "error");
+                        console.error("Ошибка инициализации Firebase:", e);
                         STATE.db = null;
                         STATE.auth = null;
                     }
                 },
 
                 async authenticateFirebase() {
-                    if (!STATE.auth) {
-                        console.error("Firebase Auth is not initialized. Cannot authenticate.");
-                        VIEW.showNotification("Ошибка: Служба аутентификации Firebase недоступна. Проверьте конфигурацию.", "error");
-                        STATE.currentUserId = null;
-                        return;
-                    }
+                    if (!STATE.auth) return;
                     try {
-                        console.log("Attempting Firebase authentication...");
-                        // Используем __initial_auth_token, если доступен (для Canvas), иначе анонимный вход
                         if (typeof __initial_auth_token !== 'undefined') {
                             const userCredential = await signInWithCustomToken(STATE.auth, __initial_auth_token);
                             STATE.currentUserId = userCredential.user.uid;
@@ -263,178 +279,61 @@
                             STATE.currentUserId = userCredential.user.uid;
                         }
                     } catch (error) {
-                        console.error("Error during Firebase authentication:", error);
-                        VIEW.showNotification("Ошибка аутентификации. Убедитесь, что Firebase Authentication включен для вашего проекта 'ik2grafik' в консоли Firebase (метод 'Anonymous').", "error");
+                        console.error("Ошибка аутентификации Firebase:", error);
                         STATE.currentUserId = null;
                     }
                 },
 
-                initTelegram() {
-                    const tg = window.Telegram.WebApp;
-                    tg.ready();
-                    STATE.telegramUser = tg.initDataUnsafe.user; // Используем initDataUnsafe для начального отображения
-                    if (!STATE.telegramUser) {
-                        console.warn("Telegram WebApp user data not available, using fallback admin ID for testing.");
-                        STATE.telegramUser = { id: parseInt(CONFIG.DEFAULT_ADMIN_ID), first_name: 'Тестовый', username: 'test_admin_user' };
-                    }
-                    tg.expand();
-                },
-
-                // Функция для проверки подписи Telegram
-                async validateTelegramAuthSignature() {
-                    try {
-                        const initData = window.Telegram.WebApp.initData;
-                        console.log("DEBUG: Telegram.WebApp.initData получен:", initData); // Более явный лог
-
-                        if (!initData || initData.trim() === '') {
-                            console.error("Ошибка: Telegram.WebApp.initData пуст или отсутствует. Невозможно проверить подпись.");
-                            VIEW.showNotification("Ошибка авторизации Telegram: initData отсутствует. Убедитесь, что приложение запущено из Telegram.", "error");
-                            return false; // Возвращаем false, так как initData отсутствует
-                        }
-
-                        console.log("Отправка initData для проверки на прокси:", initData);
-
-                        // Парсим initData, чтобы извлечь hash
-                        const params = new URLSearchParams(initData);
-                        const hash = params.get('hash');
-                        const queryId = params.get('query_id');
-                        const user = params.get('user');
-                        const authDate = params.get('auth_date');
-
-                        const res = await fetch("https://telegram-auth-proxy.ik2grafik.workers.dev", { // Используем ваш debug URL
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                queryId: queryId,
-                                initData: user, // Это initData.user из оригинального запроса
-                                signature: hash, // <--- ИСПРАВЛЕНО: Отправляем hash
-                                authDate: authDate,
-                                // botToken: TELEGRAM_TOKEN // Бот-токен не отправляется с клиента
-                            })
-                        });
-
-                        const data = await res.json();
-                        console.log("Ответ отладочного прокси Telegram:", data); // Логируем весь ответ
-
-                        if (!data.ok) {
-                            VIEW.showNotification(`Ошибка проверки подписи Telegram: ${data.error || 'Неизвестно'}`, "error");
-                            return false;
-                        }
-                        return true; // Подпись успешно проверена
-
-                    } catch (err) {
-                        console.error("Ошибка при вызове прокси Telegram для проверки подписи:", err);
-                        VIEW.showNotification("Ошибка при вызове прокси Telegram для проверки подписи. Произошла сетевая ошибка.", "error");
-                        return false; // Если произошла ошибка fetch, считаем авторизацию неуспешной
-                    }
-                },
-
                 async loadUsersFromFirestore() {
-                    if (!STATE.db) {
-                        VIEW.showNotification("Ошибка: База данных не инициализирована. Невозможно загрузить пользователей.", "error");
-                        return;
-                    }
+                    if (!STATE.db) return;
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     try {
                         STATE.users = {};
                         const currentTelegramId = STATE.telegramUser.id.toString();
                         const telegramUserName = SERVICE.sanitizeInput(`${STATE.telegramUser.first_name} ${STATE.telegramUser.last_name || ''}`).trim();
 
-                        // Шаг 1: Загружаем документ текущего пользователя
-                        const currentUserDocRef = doc(usersRef, currentTelegramId);
-                        const currentUserDocSnap = await getDoc(currentUserDocRef);
-                        
-                        let currentUserData = null;
-                        if (currentUserDocSnap.exists()) {
-                            currentUserData = currentUserDocSnap.data();
-                            STATE.users[currentUserDocSnap.id] = currentUserData;
-                        }
-
-                        // Шаг 2: Обеспечиваем существование и корректную роль для DEFAULT_ADMIN_ID
-                        const defaultAdminDocRef = doc(usersRef, CONFIG.DEFAULT_ADMIN_ID);
-                        const defaultAdminDocSnap = await getDoc(defaultAdminDocRef);
-
-                        if (!defaultAdminDocSnap.exists()) {
-                            // Создаем default admin, если его нет
-                            await setDoc(defaultAdminDocRef, {
-                                name: CONFIG.DEFAULT_ADMIN_NAME,
-                                role: 'admin',
-                                active: true
-                            });
-                            STATE.users[CONFIG.DEFAULT_ADMIN_ID] = { name: CONFIG.DEFAULT_ADMIN_NAME, role: 'admin', active: true };
-                        } else if (defaultAdminDocSnap.data().role !== 'admin') {
-                            // Обновляем роль default admin, если она некорректна
-                            await updateDoc(defaultAdminDocRef, { role: 'admin' });
-                            STATE.users[CONFIG.DEFAULT_ADMIN_ID] = { ...defaultAdminDocSnap.data(), role: 'admin' };
-                        } else {
-                            STATE.users[CONFIG.DEFAULT_ADMIN_ID] = defaultAdminDocSnap.data();
-                        }
-
-                        // Шаг 3: Определяем роль текущего пользователя после потенциального создания/обновления админа
-                        // Это важно, так как текущий пользователь может быть DEFAULT_ADMIN_ID
-                        this.determineUserRole(); 
-
-                        // Шаг 4: Если текущий пользователь является администратором, загружаем всех пользователей
-                        if (STATE.userRole === 'admin') {
-                            const querySnapshot = await getDocs(usersRef);
-                            querySnapshot.forEach(doc => {
-                                if (doc.data().name && doc.data().role) {
-                                    STATE.users[doc.id] = doc.data();
-                                } else {
-                                    console.warn(`Пропущен некорректный документ пользователя: ${doc.id}`, doc.data());
-                                }
-                            });
-                        } else {
-                            // Если текущий пользователь не админ и его документа не было, создаем его как гостя
-                            if (!currentUserDocSnap.exists()) {
-                                STATE.users[currentTelegramId] = {
-                                    name: telegramUserName || `Пользователь ${currentTelegramId}`,
-                                    role: 'guest',
-                                    active: true
-                                };
-                                await setDoc(currentUserDocRef, STATE.users[currentTelegramId]);
-                                SERVICE.sendAdminNotification(
-                                    `Новый пользователь зарегистрировался: <b>${telegramUserName}</b> (ID: <code>${currentTelegramId}</code>). ` +
-                                    `Роль: Гость. Пожалуйста, измените его роль в разделе "Управление персоналом" в приложении.`
-                                );
-                            } else if (currentUserData && currentUserData.name !== telegramUserName) {
-                                // Обновляем имя пользователя, если оно изменилось
-                                await updateDoc(currentUserDocRef, { name: telegramUserName });
-                                STATE.users[currentTelegramId].name = telegramUserName;
+                        const allDocsSnap = await getDocs(usersRef);
+                        allDocsSnap.forEach(doc => {
+                            if (doc.data().name && doc.data().role) {
+                                STATE.users[doc.id] = doc.data();
                             }
+                        });
+
+                        // Обеспечиваем существование и корректную роль для админа
+                        if (!STATE.users[CONFIG.DEFAULT_ADMIN_ID] || STATE.users[CONFIG.DEFAULT_ADMIN_ID].role !== 'admin') {
+                            const adminData = { name: CONFIG.DEFAULT_ADMIN_NAME, role: 'admin', active: true };
+                            await setDoc(doc(usersRef, CONFIG.DEFAULT_ADMIN_ID), adminData);
+                            STATE.users[CONFIG.DEFAULT_ADMIN_ID] = adminData;
                         }
 
-                        // Обновляем списки офицеров и техников на основе актуальных данных пользователей
-                        this.determineUserRole(); 
-
-                        const allInitialPeople = [...new Set([...CONFIG.INITIAL_DATA.officers, ...CONFIG.INITIAL_DATA.technicians])];
-                        for (const name of allInitialPeople) {
-                            const existingUser = Object.values(STATE.users).find(u => u.name === name);
-                            if (!existingUser) {
-                                console.warn(`Пользователь '${name}' из начального списка не найден в Firestore и не добавлен, так как нет Telegram ID.`);
-                            }
+                        // Проверяем текущего пользователя
+                        if (!STATE.users[currentTelegramId]) {
+                            const newUserData = { name: telegramUserName, role: 'guest', active: true };
+                            await setDoc(doc(usersRef, currentTelegramId), newUserData);
+                            STATE.users[currentTelegramId] = newUserData;
+                            this.sendAdminNotification(
+                                `Новый пользователь зарегистрировался: <b>${telegramUserName}</b> (ID: <code>${currentTelegramId}</code>). ` +
+                                `Роль: Гость. Пожалуйста, измените его роль в разделе "Управление персоналом".`
+                            );
+                        } else if (STATE.users[currentTelegramId].name !== telegramUserName) {
+                            await updateDoc(doc(usersRef, currentTelegramId), { name: telegramUserName });
+                            STATE.users[currentTelegramId].name = telegramUserName;
                         }
                     } catch (e) {
-                        console.error("Error in loadUsersFromFirestore:", e);
-                        VIEW.showNotification("Ошибка загрузки данных пользователей. Проверьте правила безопасности Firestore.", "error");
+                        console.error("Ошибка в loadUsersFromFirestore:", e);
                         throw e;
                     }
                 },
 
-                // --- НОВАЯ ФУНКЦИЯ ДЛЯ ОТПРАВКИ УВЕДОМЛЕНИЙ АДМИНИСТРАТОРУ ---
                 async sendAdminNotification(message) {
-                    // URL вашего Cloudflare Worker для отправки уведомлений
-                    const workerUrl = "https://telegram-auth-proxy.ik2grafik.workers.dev"; // Используем ваш debug URL для Worker
-
                     const payload = {
-                        action: "sendMessage", // Добавляем действие, чтобы Worker знал, что делать
-                        chat_id: CONFIG.DEFAULT_ADMIN_ID, // Используем DEFAULT_ADMIN_ID, так как он должен быть настроен в Worker
+                        action: "sendMessage",
+                        chat_id: CONFIG.DEFAULT_ADMIN_ID,
                         text: message,
                         parse_mode: 'HTML'
                     };
-
                     try {
-                        const response = await fetch(workerUrl, {
+                        const response = await fetch(CONFIG.WORKER_URLS.AUTH, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
@@ -442,28 +341,15 @@
                         const data = await response.json();
                         if (!data.ok) {
                             console.error("Не удалось отправить уведомление Telegram через Worker:", data.description);
-                            VIEW.showNotification(`Ошибка отправки уведомления Telegram: ${data.description}`, "error");
-                        } else {
-                            console.log("Уведомление Telegram успешно отправлено через Worker.");
                         }
                     } catch (error) {
                         console.error("Ошибка при отправке уведомления Telegram через Worker:", error);
-                        VIEW.showNotification("Произошла ошибка при отправке уведомления Telegram через Worker.", "error");
                     }
                 },
-                // --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
 
-                // Вспомогательная функция для очистки пользовательского ввода от XSS
                 sanitizeInput(input) {
                     if (typeof input !== 'string') return input;
-                    const map = {
-                        '&': '&amp;',
-                        '<': '&lt;',
-                        '>': '&gt;',
-                        '"': '&quot;',
-                        "'": '&#39;',
-                        '`': '&#x60;'
-                    };
+                    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#x60;' };
                     return input.replace(/[&<>"'`]/g, (match) => map[match]);
                 },
 
@@ -471,72 +357,36 @@
                     const currentTelegramId = STATE.telegramUser.id.toString();
                     if (currentTelegramId === CONFIG.DEFAULT_ADMIN_ID) {
                         STATE.userRole = 'admin';
-                    } else if (STATE.users[currentTelegramId]) {
-                        STATE.userRole = STATE.users[currentTelegramId].role;
                     } else {
-                        STATE.userRole = 'guest';
+                        STATE.userRole = STATE.users[currentTelegramId]?.role || 'guest';
                     }
 
-                    // Обновляем списки officers и technicians на основе актуальных данных из STATE.users
-                    // и начальных данных CONFIG.INITIAL_DATA
                     STATE.officers = Object.values(STATE.users)
-                        .filter(u => CONFIG.INITIAL_DATA.officers.includes(u.name) && u.active !== false) // Добавлена проверка на active
-                        .map(u => u.name);
+                        .filter(u => CONFIG.INITIAL_DATA.officers.includes(u.name) && u.active !== false)
+                        .map(u => u.name).sort();
                     STATE.technicians = Object.values(STATE.users)
-                        .filter(u => CONFIG.INITIAL_DATA.technicians.includes(u.name) && u.active !== false) // Добавлена проверка на active
-                        .map(u => u.name);
-                    STATE.officians = [...new Set(STATE.officers)].sort();
-                    STATE.technicians = [...new Set(STATE.technicians)].sort();
+                        .filter(u => CONFIG.INITIAL_DATA.technicians.includes(u.name) && u.active !== false)
+                        .map(u => u.name).sort();
                 },
 
                 setupFirestoreListeners() {
                     STATE.unsubscribeListeners.forEach(unsubscribe => unsubscribe());
                     STATE.unsubscribeListeners = [];
-
-                    if (!STATE.db) {
-                        return;
-                    }
+                    if (!STATE.db) return;
 
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
-                    // Слушатель для текущего пользователя (всегда разрешен)
-                    const currentUserDocRef = doc(usersRef, STATE.telegramUser.id.toString());
-                    STATE.unsubscribeListeners.push(onSnapshot(currentUserDocRef, (docSnapshot) => {
-                        if (docSnapshot.exists()) {
-                            STATE.users[docSnapshot.id] = docSnapshot.data();
-                            this.determineUserRole(); // Переопределяем роль, если изменился текущий пользователь
-                            VIEW.renderUserInfo(); // Обновляем информацию о пользователе
-                            VIEW.updateManagementSectionVisibility(); // Обновляем видимость секции управления
-                            CONTROLLER.setupInputListeners(); // Обновляем состояние кнопок
-                        } else {
-                            // Если документ текущего пользователя удален или не существует,
-                            // переводим его в роль гостя и перерендериваем UI.
-                            STATE.userRole = 'guest';
-                            VIEW.renderUnauthorized('guest_role');
-                        }
-                    }, (error) => {
-                        console.error("Error listening to current user document:", error);
-                        VIEW.showNotification("Ошибка при прослушивании изменений вашего профиля.", "error");
-                    }));
-
-                    // Слушатель для всей коллекции пользователей (только для админов)
-                    // Этот слушатель будет активен только если пользователь является админом.
-                    // Если пользователь не админ, он не сможет получить доступ к этой коллекции,
-                    // и это не вызовет ошибку, так как мы не пытаемся получить все документы.
-                    if (STATE.userRole === 'admin') {
-                        STATE.unsubscribeListeners.push(onSnapshot(usersRef, (snapshot) => {
-                            snapshot.docChanges().forEach(change => {
+                    STATE.unsubscribeListeners.push(onSnapshot(usersRef, (snapshot) => {
+                        snapshot.docChanges().forEach(change => {
+                            if (change.type === "removed") {
+                                delete STATE.users[change.doc.id];
+                            } else {
                                 STATE.users[change.doc.id] = change.doc.data();
-                            });
-                            this.determineUserRole();
-                            VIEW.renderManagementList();
-                            VIEW.renderUserInfo();
-                            CONTROLLER.setupInputListeners();
-                        }, (error) => {
-                            console.error("Error listening to users collection:", error);
-                            VIEW.showNotification("Ошибка при прослушивании изменений коллекции пользователей.", "error");
-                        }));
-                    }
-
+                            }
+                        });
+                        this.determineUserRole();
+                        VIEW.renderManagementList();
+                        VIEW.renderUserInfo();
+                    }));
 
                     const monthDocRef = doc(collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.MONTHS_COLLECTION}`), `${STATE.year}_${STATE.currentMonth}`);
                     STATE.unsubscribeListeners.push(onSnapshot(monthDocRef, (docSnapshot) => {
@@ -547,75 +397,40 @@
                             STATE.generalSchedule[STATE.currentMonth] = data.generalSchedule || {};
                             STATE.colors = data.colors || {};
                         } else {
-                            if (STATE.currentMonth === 6) { // Инициализация данных для июля, если их нет
+                            STATE.duties[STATE.currentMonth] = {};
+                            STATE.techDuties[STATE.currentMonth] = {};
+                            STATE.generalSchedule[STATE.currentMonth] = {};
+                            if (STATE.currentMonth === 6 && STATE.year === 2024) { // Июль 2024
                                 STATE.duties[6] = { ...CONFIG.INITIAL_DATA.julyDuties };
                                 STATE.techDuties[6] = JSON.parse(JSON.stringify(CONFIG.INITIAL_DATA.technicianDuties));
                                 STATE.generalSchedule[6] = JSON.parse(JSON.stringify(CONFIG.INITIAL_DATA.generalScheduleData));
-                                this.saveData(); // Сохраняем начальные данные
+                                this.saveData();
                             }
                         }
                         STATE.hasUnsavedChanges = false;
                         VIEW.renderAll();
-                    }, (error) => {
-                        console.error("Error listening to month data:", error);
-                        VIEW.showNotification("Ошибка при прослушивании изменений данных месяца.", "error");
                     }));
                 },
 
-                // Новая функция для валидации данных перед сохранением
-                validateMonthData(data) {
-                    if (!data || typeof data !== 'object') {
-                        throw new Error("Некорректный формат данных месяца: ожидается объект.");
-                    }
-                    if (typeof data.duties !== 'object' || data.duties === null) {
-                        throw new Error("Некорректный формат данных дежурств.");
-                    }
-                    if (typeof data.techDuties !== 'object' || data.techDuties === null) {
-                        throw new Error("Некорректный формат данных техников.");
-                    }
-                    if (typeof data.generalSchedule !== 'object' || data.generalSchedule === null) {
-                        throw new Error("Некорректный формат общих данных расписания.");
-                    }
-                    if (typeof data.colors !== 'object' || data.colors === null) {
-                        throw new Error("Некорректный формат данных цветов.");
-                    }
-                    return true;
-                },
-
                 async saveData() {
-                    if (!(STATE.userRole === 'admin' || STATE.userRole === 'boss' || STATE.userRole === 'worker')) {
-                        VIEW.showNotification('У вас нет прав для сохранения изменений.', 'error');
-                        return;
-                    }
-                    if (!STATE.db) {
-                        VIEW.showNotification('База данных не инициализирована. Невозможно сохранить данные.', 'error');
-                        return;
-                    }
+                    if (STATE.userRole === 'guest') return;
+                    if (!STATE.db) return;
 
                     VIEW.showLoadingIndicator();
                     const monthDocRef = doc(collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.MONTHS_COLLECTION}`), `${STATE.year}_${STATE.currentMonth}`);
                     
                     try {
-                        // Валидация данных перед сохранением
-                        this.validateMonthData({
-                            duties: STATE.duties[STATE.currentMonth],
-                            techDuties: STATE.techDuties[STATE.currentMonth],
-                            generalSchedule: STATE.generalSchedule[STATE.currentMonth],
-                            colors: STATE.colors
-                        });
-
                         await setDoc(monthDocRef, {
-                            duties: STATE.duties[STATE.currentMonth],
-                            techDuties: STATE.techDuties[STATE.currentMonth],
-                            generalSchedule: STATE.generalSchedule[STATE.currentMonth],
-                            colors: STATE.colors
+                            duties: STATE.duties[STATE.currentMonth] || {},
+                            techDuties: STATE.techDuties[STATE.currentMonth] || {},
+                            generalSchedule: STATE.generalSchedule[STATE.currentMonth] || {},
+                            colors: STATE.colors || {}
                         }, { merge: true });
                         
                         STATE.hasUnsavedChanges = false;
                         VIEW.showNotification('Изменения успешно сохранены!', 'success');
-                    }
-                    catch (e) {
-                        console.error("Error saving data to Firestore or validation failed:", e);
+                    } catch (e) {
+                        console.error("Ошибка сохранения данных:", e);
                         VIEW.showNotification(`Ошибка сохранения данных: ${e.message}`, 'error');
                     } finally {
                         VIEW.hideLoadingIndicator();
@@ -624,45 +439,46 @@
 
                 async changeMonth(newMonth) {
                     if (STATE.hasUnsavedChanges) {
-                        VIEW.showConfirmModal('У вас есть несохраненные изменения. Вы уверены, что хотите продолжить без сохранения?').then(confirmed => {
-                            if (!confirmed) {
-                                VIEW.renderMonthSelector();
-                                return;
-                            }
-                            STATE.currentMonth = parseInt(newMonth, 10);
-                            SERVICE.setupFirestoreListeners();
-                            VIEW.renderAll();
-                            VIEW.renderMonthSelector();
-                        });
-                    } else {
-                        STATE.currentMonth = parseInt(newMonth, 10);
-                        SERVICE.setupFirestoreListeners();
-                        VIEW.renderAll();
-                        VIEW.renderMonthSelector();
+                        const confirmed = await VIEW.showConfirmModal('У вас есть несохраненные изменения. Продолжить без сохранения?');
+                        if (!confirmed) {
+                            VIEW.renderMonthSelector(); // Revert dropdown
+                            return;
+                        }
                     }
+                    STATE.currentMonth = parseInt(newMonth, 10);
+                    this.setupFirestoreListeners();
+                },
+
+                async changeYear(newYear) {
+                    if (STATE.hasUnsavedChanges) {
+                         const confirmed = await VIEW.showConfirmModal('У вас есть несохраненные изменения. Продолжить без сохранения?');
+                        if (!confirmed) {
+                            VIEW.renderMonthSelector(); // Revert dropdown
+                            return;
+                        }
+                    }
+                    STATE.year = parseInt(newYear, 10);
+                    this.setupFirestoreListeners();
                 },
 
                 async toggleEditMode() {
-                    if (!(STATE.userRole === 'admin' || STATE.userRole === 'boss' || STATE.userRole === 'worker')) {
+                    if (STATE.userRole === 'guest') {
                         VIEW.showNotification('У вас нет прав для редактирования.', 'error');
                         return;
                     }
                     
+                    // Убираем фокус, чтобы не всплывала клавиатура на мобильных
+                    if (document.activeElement) document.activeElement.blur();
+
                     if (STATE.isEditMode && STATE.hasUnsavedChanges) {
                         const confirmed = await VIEW.showConfirmModal('У вас есть несохраненные изменения. Сохранить их перед выходом?');
                         if (confirmed) await this.saveData();
-                        else this.setupFirestoreListeners();
+                        else this.setupFirestoreListeners(); // Revert changes
                     }
                     
                     STATE.isEditMode = !STATE.isEditMode;
-                    
-                    VIEW.renderAll();
-
-                    if (document.activeElement) {
-                        document.activeElement.blur();
-                    }
-
                     VIEW.showNotification(STATE.isEditMode ? 'Режим редактирования включен' : 'Режим просмотра', 'info');
+                    VIEW.renderAll();
                 },
 
                 switchTab(tabName) {
@@ -676,28 +492,21 @@
                         if (calendarType === 'duty') VIEW.showDutyModal();
                         else VIEW.showAssignmentModal(calendarType);
                     } else {
-                        VIEW.showEnlargedDayView(day, calendarType);
+                        VIEW.showEnlargedDayView(day);
                     }
                 },
 
-                // Helper to get all assignments for a given day across all schedules
                 getAllDayAssignments(month, day) {
                     const dayKey = day.toString();
                     const assignments = [];
-
-                    // From duties (single person, implicitly 'ДС')
-                    if (STATE.duties[month] && STATE.duties[month][dayKey]) {
+                    if (STATE.duties[month]?.[dayKey]) {
                         assignments.push({ person: STATE.duties[month][dayKey], shift: 'ДС' });
                     }
-
-                    // From techDuties (array of objects)
-                    if (STATE.techDuties[month] && Array.isArray(STATE.techDuties[month][dayKey])) {
-                        STATE.techDuties[month][dayKey].forEach(a => assignments.push(a));
+                    if (Array.isArray(STATE.techDuties[month]?.[dayKey])) {
+                        assignments.push(...STATE.techDuties[month][dayKey]);
                     }
-
-                    // From generalSchedule (array of objects)
-                    if (STATE.generalSchedule[month] && Array.isArray(STATE.generalSchedule[month][dayKey])) {
-                        STATE.generalSchedule[month][dayKey].forEach(a => assignments.push(a));
+                    if (Array.isArray(STATE.generalSchedule[month]?.[dayKey])) {
+                        assignments.push(...STATE.generalSchedule[month][dayKey]);
                     }
                     return assignments;
                 },
@@ -705,429 +514,170 @@
                 async assignDuty(person) {
                     const { currentMonth, currentSelectedDay: day } = STATE;
                     const dayKey = day.toString();
-                    const assignment = { person, shift: 'ДС' }; // Duty is always 'ДС'
-
-                    const allDayAssignments = this.getAllDayAssignments(currentMonth, day);
-                    const existingDsAssignment = allDayAssignments.find(a => a.shift === 'ДС' && a.person === person); // Changed to check for same person
-
-                    if (existingDsAssignment) {
-                        VIEW.showNotification(`На ${day} число уже назначен "${existingDsAssignment.person}" на смену "ДС".`, 'info');
-                        return;
-                    }
                     
-                    // Check for night before for the *newly assigned* person
-                    const prevDay = (parseInt(day, 10) - 1).toString();
-                    let wasNightBefore = false;
-                    const prevDayAssignments = this.getAllDayAssignments(currentMonth, prevDay);
-                    wasNightBefore = prevDayAssignments.some(a => a.person === person && (a.shift === 'Ночь караул' || a.shift === 'НК'));
-                    
-                    if (wasNightBefore && assignment.shift !== 'Отсыпной' && assignment.shift !== 'О' && assignment.shift !== 'Выходной' && assignment.shift !== 'В') {
-                        const confirmed = await VIEW.showConfirmModal(`${person} был на 'Ночь караул' накануне. Выверены, что хотите лишить его отдыха и поставить на смену '${assignment.shift}'? Это не рекомендуется!`);
-                        if (!confirmed) {
-                            VIEW.closeModal();
-                            return;
-                        }
-                    }
-
                     if (person === CONFIG.NO_DUTY_LABEL) {
                         delete STATE.duties[currentMonth][dayKey];
                     } else {
                         STATE.duties[currentMonth][dayKey] = person;
                     }
-
-                    // Sync with general schedule if this is a duty assignment for an officer
-                    if (person !== CONFIG.NO_DUTY_LABEL && CONFIG.INITIAL_DATA.officers.includes(person)) {
-                        const generalAssignments = STATE.generalSchedule[currentMonth][dayKey] || [];
-                        // Remove any existing 'ДС' for this person if they were already there with a different shift
-                        const filteredGeneral = generalAssignments.filter(a => !(a.person === person && a.shift === 'ДС'));
-                        filteredGeneral.push({ person, shift: 'ДС' });
-                        STATE.generalSchedule[currentMonth][dayKey] = filteredGeneral.sort((a, b) => a.person.localeCompare(b.person));
-                    } else if (person === CONFIG.NO_DUTY_LABEL) {
-                        // If duty is removed, also remove 'ДС' for this person from general schedule
-                        if (STATE.generalSchedule[currentMonth] && Array.isArray(STATE.generalSchedule[currentMonth][dayKey])) {
-                            STATE.generalSchedule[currentMonth][dayKey] = STATE.generalSchedule[currentMonth][dayKey].filter(a => !(a.person === person && a.shift === 'ДС'));
-                            if (STATE.generalSchedule[currentMonth][dayKey].length === 0) delete STATE.generalSchedule[currentMonth][dayKey];
-                        }
-                    }
                     
                     STATE.hasUnsavedChanges = true;
                     VIEW.closeModal();
-                    // Call renderCalendar for specific types
-                    VIEW.renderCalendar('duty', day);
-                    VIEW.renderCalendar('technician', day);
-                    VIEW.renderCalendar('general', day);
-                    VIEW.renderStatistics(); // Stats might change, so re-render
+                    VIEW.renderAll();
+                    VIEW.renderStatistics();
                 },
 
                 async addAssignment(person, shift, calendarType) {
                     const { currentMonth, currentSelectedDay: day } = STATE;
                     const dayKey = day.toString();
                     const scheduleKey = calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
-                    let assignments = STATE[scheduleKey][currentMonth][dayKey] || [];
-                    const newAssignment = { person, shift };
-
-                    // Check for existing 'ДС' if the new assignment is 'ДС'
-                    if (shift === 'ДС') {
-                        const allDayAssignments = this.getAllDayAssignments(currentMonth, day);
-                        const existingDsAssignment = allDayAssignments.find(a => a.shift === 'ДС' && a.person === person);
-
-                        if (existingDsAssignment) {
-                            VIEW.showNotification(`На ${day} число уже назначен "${existingDsAssignment.person}" на смену "ДС".`, 'info');
-                            return;
-                        }
-                    }
                     
-                    // Check for night before for the *newly assigned* person
-                    const prevDay = (parseInt(day, 10) - 1).toString();
-                    let wasNightBefore = false;
-                    const prevDayAssignments = this.getAllDayAssignments(currentMonth, prevDay);
-                    wasNightBefore = prevDayAssignments.some(a => a.person === person && (a.shift === 'Ночь караул' || a.shift === 'НК'));
+                    const assignments = STATE[scheduleKey][currentMonth]?.[dayKey] || [];
                     
-                    if (wasNightBefore && newAssignment.shift !== 'Отсыпной' && newAssignment.shift !== 'О' && newAssignment.shift !== 'Выходной' && newAssignment.shift !== 'В') {
-                        const confirmed = await VIEW.showConfirmModal(`${person} был на 'Ночь караул' накануне. Выверены, что хотите лишить его отдыха и поставить на смену '${newAssignment.shift}'? Это не рекомендуется!`);
-                        if (!confirmed) {
-                            VIEW.closeModal();
-                            return;
-                        }
-                    }
-
-                    // Remove existing assignment for the same person in the current calendar type
-                    assignments = assignments.filter(a => a.person !== person);
-                    assignments.push(newAssignment);
-                    assignments.sort((a, b) => a.person.localeCompare(b.person));
-                    STATE[scheduleKey][currentMonth][dayKey] = assignments;
-
-                    this.syncSchedules('add', newAssignment, calendarType);
+                    // Удаляем предыдущее назначение для этого человека в этом календаре
+                    const filteredAssignments = assignments.filter(a => a.person !== person);
+                    filteredAssignments.push({ person, shift });
+                    filteredAssignments.sort((a, b) => a.person.localeCompare(b.person));
+                    
+                    if (!STATE[scheduleKey][currentMonth]) STATE[scheduleKey][currentMonth] = {};
+                    STATE[scheduleKey][currentMonth][dayKey] = filteredAssignments;
 
                     STATE.hasUnsavedChanges = true;
                     VIEW.renderAssignmentModalList(calendarType);
-                    // Call renderCalendar for specific types
-                    VIEW.renderCalendar('duty', day);
-                    VIEW.renderCalendar('technician', day);
-                    VIEW.renderCalendar('general', day);
+                    VIEW.renderAll();
                     VIEW.showNotification('Назначение добавлено!', 'success');
                 },
 
                 deleteAssignment(index, calendarType) {
                     const { currentMonth, currentSelectedDay: day } = STATE;
-                    const dayKey = day.toString();
                     const scheduleKey = calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
-                    const assignments = STATE[scheduleKey][currentMonth][dayKey];
-
-                    if (assignments && index >= 0 && index < assignments.length) {
-                        const deletedAssignment = assignments.splice(index, 1)[0];
-                        if (assignments.length === 0) {
-                            delete STATE[scheduleKey][currentMonth][dayKey];
-                        }
-                        
-                        this.syncSchedules('delete', deletedAssignment, calendarType);
-
-                        STATE.hasUnsavedChanges = true;
-                        VIEW.renderAssignmentModalList(calendarType);
-                        // Call renderCalendar for specific types
-                        VIEW.renderCalendar('duty', day);
-                        VIEW.renderCalendar('technician', day);
-                        VIEW.renderCalendar('general', day);
-                        VIEW.showNotification('Назначение удалено!', 'info');
-                    }
+                    STATE[scheduleKey][currentMonth][day.toString()].splice(index, 1);
+                    
+                    STATE.hasUnsavedChanges = true;
+                    VIEW.renderAssignmentModalList(calendarType);
+                    VIEW.renderAll();
+                    VIEW.showNotification('Назначение удалено!', 'info');
                 },
                 
-                syncSchedules(actionType, assignment, sourceCalendar) {
-                    const { person, shift } = assignment;
-                    const { currentMonth, currentSelectedDay: day } = STATE;
-                    const dayKey = day.toString();
-                    const isPersonOfficer = CONFIG.INITIAL_DATA.officers.includes(person);
-                    const isPersonTechnician = CONFIG.INITIAL_DATA.technicians.includes(person);
-
-                    // If a person is assigned 'ДС' in technician schedule and is an officer, update duty schedule
-                    if (sourceCalendar === 'technician' && (person === 'Морозов В.А.' || person === 'Ребраков Т.В.')) {
-                        if (shift === 'ДС' && actionType === 'add') {
-                            STATE.duties[currentMonth][dayKey] = person;
-                        } else if (shift === 'ДС' && actionType === 'delete') {
-                            if (STATE.duties[currentMonth][dayKey] === person) delete STATE.duties[currentMonth][dayKey];
-                        }
-                    }
-                    
-                    const update = (schedule, key, assign, add) => {
-                        const current = schedule[currentMonth][key] || [];
-                        let filtered = current.filter(a => !(a.person === assign.person && a.shift === assign.shift));
-                        if (add) {
-                            filtered.push(assign);
-                            filtered.sort((a,b) => a.person.localeCompare(b.person));
-                        }
-                        if (filtered.length > 0) schedule[currentMonth][key] = filtered;
-                        else delete schedule[currentMonth][key];
-                    };
-
-                    // Sync technician to general
-                    if (sourceCalendar === 'technician') {
-                        update(STATE.generalSchedule, dayKey, assignment, actionType === 'add');
-                    } 
-                    // Sync general to duty/technician based on person's role and shift
-                    else if (sourceCalendar === 'general') {
-                        if (shift === 'ДС' && isPersonOfficer) {
-                            if (actionType === 'add') STATE.duties[currentMonth][dayKey] = person;
-                            else if (STATE.duties[currentMonth][dayKey] === person) delete STATE.duties[currentMonth][dayKey];
-                        }
-                        if (isPersonTechnician && (shift === '8' || shift === 'ДС')) {
-                            update(STATE.techDuties, dayKey, assignment, actionType === 'add');
-                        }
-                    }
-                    // Sync duty to general
-                    else if (sourceCalendar === 'duty') {
-                        if (shift === 'ДС' && isPersonOfficer) {
-                             update(STATE.generalSchedule, dayKey, assignment, actionType === 'add');
-                        }
-                    }
-                },
-
-                async addPerson(name, telegramId = null) {
-                    if (STATE.userRole !== 'admin') {
-                        VIEW.showNotification('Только администратор может добавлять сотрудников.', 'error');
-                        return;
-                    }
-                    const sanitizedName = SERVICE.sanitizeInput(name); // Санитизация имени
-                    const sanitizedTelegramId = SERVICE.sanitizeInput(telegramId); // Санитизация Telegram ID
+                async addPerson(name, telegramId) {
+                    if (STATE.userRole !== 'admin') return;
+                    const sanitizedName = SERVICE.sanitizeInput(name);
+                    const sanitizedTelegramId = SERVICE.sanitizeInput(telegramId);
 
                     if (!sanitizedName || !CONFIG.NAME_REGEX.test(sanitizedName)) {
-                        VIEW.showNotification("Введите корректное имя. Примеры: 'Иванов', 'Иванов И.И.', 'Петров-Сидоров А.Б.', 'Анна Мария', 'Смирнов-Лебедев'.", 'error');
+                        VIEW.showNotification("Введите корректное имя (Фамилия И.О.).", 'error');
                         return;
                     }
-                    if (!sanitizedTelegramId || !/^\d+$/.test(sanitizedTelegramId)) {
-                        VIEW.showNotification('Telegram ID должен содержать только цифры и быть обязательным.', 'error');
+                    if (!sanitizedTelegramId || !/^\d{6,}$/.test(sanitizedTelegramId)) {
+                        VIEW.showNotification('Telegram ID должен содержать минимум 6 цифр.', 'error');
                         return;
                     }
-                    if (sanitizedTelegramId.length < 6) {
-                        VIEW.showNotification('Telegram ID слишком короткий (минимум 6 цифр).', 'error');
-                        return;
-                    }
-                    if (!STATE.db) {
-                        VIEW.showNotification('База данных не инициализирована. Невозможно добавить сотрудника.', 'error');
-                        return;
-                    }
-
-                    const existingUserByName = Object.values(STATE.users).find(u => u.name === sanitizedName);
-                    if (existingUserByName) {
-                        VIEW.showNotification('Сотрудник с таким именем уже существует.', 'info');
-                        return;
-                    }
-
-                    let newId = sanitizedTelegramId.toString();
-                    
-                    if (STATE.users[newId]) { // Проверка на существование по ID в локальном STATE
-                        VIEW.showNotification('Пользователь с таким Telegram ID уже существует.', 'info');
+                    if (Object.values(STATE.users).some(u => u.name === sanitizedName) || STATE.users[sanitizedTelegramId]) {
+                        VIEW.showNotification('Сотрудник с таким именем или ID уже существует.', 'info');
                         return;
                     }
 
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     try {
-                        // Дополнительная проверка существования в Firestore перед записью
-                        const docSnap = await getDoc(doc(usersRef, newId));
-                        if (docSnap.exists()) {
-                            VIEW.showNotification('Пользователь с таким Telegram ID уже существует в базе данных.', 'info');
-                            return;
-                        }
-
-                        await setDoc(doc(usersRef, newId), { name: sanitizedName, role: 'worker', active: true }); // Добавлено поле active
+                        await setDoc(doc(usersRef, sanitizedTelegramId), { name: sanitizedName, role: 'worker', active: true });
                         VIEW.showNotification(`Сотрудник ${sanitizedName} добавлен!`, 'success');
                         VIEW.newOfficerNameInput.value = '';
                         VIEW.newOfficerTelegramIdInput.value = '';
                     } catch (e) {
-                        console.error("Error adding person to Firestore:", e);
                         VIEW.showNotification("Ошибка добавления сотрудника.", "error");
                     }
                 },
 
                 async deletePerson(personIdToDelete) {
-                    if (STATE.userRole !== 'admin') {
-                        VIEW.showNotification('У вас нет прав для удаления сотрудников.', 'error');
-                        return;
-                    }
-                    if (personIdToDelete === STATE.telegramUser.id.toString()) {
-                        VIEW.showNotification('Вы не можете удалить себя.', 'error');
-                        return;
-                    }
-                    if (!STATE.db) {
-                        VIEW.showNotification('База данных не инициализирована. Невозможно удалить сотрудника.', 'error');
-                        return;
-                    }
+                    if (STATE.userRole !== 'admin' || personIdToDelete === STATE.telegramUser.id.toString()) return;
                     const personName = STATE.users[personIdToDelete]?.name;
-                    if (!personName) {
-                        VIEW.showNotification('Сотрудник не найден.', 'error');
-                        return;
-                    }
-                    const confirmed = await VIEW.showConfirmModal(`Вы уверены, что хотите деактивировать сотрудника "${personName}"? Его нельзя будет назначать на новые смены, но история останется.`);
+                    if (!personName) return;
+                    const confirmed = await VIEW.showConfirmModal(`Вы уверены, что хотите деактивировать сотрудника "${personName}"?`);
                     if (!confirmed) return;
+
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     try {
                         await updateDoc(doc(usersRef, personIdToDelete), { active: false });
                         VIEW.showNotification(`Сотрудник "${personName}" деактивирован.`, 'info');
                     } catch (e) {
-                        console.error("Error deactivating person in Firestore:", e);
                         VIEW.showNotification("Ошибка деактивации сотрудника.", "error");
                     }
                 },
 
                 async changePersonRole(personId, newRole) {
-                    if (STATE.userRole !== 'admin') {
-                        VIEW.showNotification('Только администратор может менять роли.', 'error');
-                        return;
-                    }
-                    if (personId === STATE.telegramUser.id.toString()) {
-                        VIEW.showNotification('Вы не можете изменить свою собственную роль.', 'error');
-                        return;
-                    }
-                    if (!STATE.db) {
-                        VIEW.showNotification('База данных не инициализирована. Невозможно изменить роль.', 'error');
-                        return;
-                    }
-                    if (STATE.users[personId]) {
-                        const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
-                        try {
-                            await updateDoc(doc(usersRef, personId), { role: newRole });
-                            VIEW.showNotification(`Роль ${STATE.users[personId].name} изменена на ${CONFIG.ROLE_NAMES[newRole]}.`, 'success');
-                        } catch (e) {
-                            console.error("Error changing person role in Firestore:", e);
-                            VIEW.showNotification("Ошибка изменения роли сотрудника.", "error");
-                        }
-                    } else {
-                        VIEW.showNotification('Пользователь не найден для изменения роли.', 'error');
+                    if (STATE.userRole !== 'admin' || personId === STATE.telegramUser.id.toString()) return;
+                    const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
+                    try {
+                        await updateDoc(doc(usersRef, personId), { role: newRole });
+                        VIEW.showNotification(`Роль ${STATE.users[personId].name} изменена.`, 'success');
+                    } catch (e) {
+                        VIEW.showNotification("Ошибка изменения роли.", "error");
                     }
                 },
                 
                 async clearMonth() {
-                    if (!(STATE.userRole === 'admin' || STATE.userRole === 'boss' || STATE.userRole === 'worker')) {
-                        VIEW.showNotification('У вас нет прав для очистки месяца.', 'error');
-                        return;
-                    }
-                    let tabName = 'графике';
-                    if (STATE.activeTab === 'duty') tabName = 'графике дежурств';
-                    else if (STATE.activeTab === 'technician') tabName = 'графике техников';
-                    else if (STATE.activeTab === 'general') tabName = 'общем графике';
-                    const confirmed = await VIEW.showConfirmModal(`Вы уверены, что хотите очистить все данные для текущего месяца в ${tabName}?`);
+                    if (STATE.userRole === 'guest') return;
+                    const tabNameMap = { duty: 'графике дежурств', technician: 'графике техников', general: 'общем графике' };
+                    const confirmed = await VIEW.showConfirmModal(`Очистить все данные для текущего месяца в ${tabNameMap[STATE.activeTab]}?`);
                     if (!confirmed) return;
 
                     const keyMap = { duty: 'duties', technician: 'techDuties', general: 'generalSchedule' };
-                    STATE[keyMap[STATE.activeTab]][STATE.currentMonth] = {};
+                    if (STATE[keyMap[STATE.activeTab]][STATE.currentMonth]) {
+                         STATE[keyMap[STATE.activeTab]][STATE.currentMonth] = {};
+                    }
                     await this.saveData();
-                    VIEW.renderAll();
-                    VIEW.showNotification(`Данные для текущего месяца в ${tabName} очищены.`, 'info');
+                    VIEW.showNotification(`Данные очищены.`, 'info');
                 },
                 
                 async cancelChanges() {
                     const confirmed = await VIEW.showConfirmModal('Отменить все несохраненные изменения?');
                     if(confirmed) {
-                        this.setupFirestoreListeners();
+                        this.setupFirestoreListeners(); // Re-fetch from DB
                         VIEW.showNotification('Изменения отменены.', 'info');
                     }
-                },
-
-                async reinitializeApp() {
-                    VIEW.showLoadingIndicator();
-                    if (STATE.unsubscribeListeners) {
-                        STATE.unsubscribeListeners.forEach(unsubscribe => unsubscribe());
-                        STATE.unsubscribeListeners = [];
-                    }
-                    STATE.db = null;
-                    STATE.auth = null;
-                    STATE.currentUserId = null;
-                    STATE.userRole = 'guest';
-
-                    await this.init();
                 },
 
                 async generateMonthSummary() {
                     VIEW.showLoadingIndicator();
                     try {
                         const monthName = new Date(STATE.year, STATE.currentMonth).toLocaleString('ru-RU', { month: 'long' });
-                        const fullMonthName = `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} ${STATE.year}`;
-
-                        let prompt = `Я предоставляю данные о расписании дежурств за ${fullMonthName}. Пожалуйста, сгенерируйте краткую, но информативную сводку, которая включает:\n`;
-                        prompt += `1. Общее количество дежурств/смен для каждого сотрудника за месяц.\n`;
-                        prompt += `2. Дни, которые кажутся наиболее загруженными (например, с большим количеством назначений).\n`;
-                        prompt += `3. Любые интересные закономерности или наблюдения (например, кто дежурил чаще всего, кто имел много выходных).\n\n`;
-                        prompt += `Формат данных:\n`;
-                        prompt += `График дежурств:\n[День]: [Имя сотрудника] (если есть)\n\n`;
-                        prompt += `График техников:\n[День]: [Имя сотрудника] ([Тип смены]), [Имя сотрудника] ([Тип смены]), ...\n\n`;
-                        prompt += `Общий график:\n[День]: [Имя сотрудника] ([Тип смены]), [Имя сотрудника] ([Тип смены]), ...\n\n`;
-                        prompt += `Данные для ${fullMonthName}:\n`;
-
+                        let prompt = `Сгенерируй краткую сводку по расписанию за ${monthName} ${STATE.year} на русском языке. Укажи общее количество смен для каждого, самые загруженные дни и любые интересные наблюдения.\n\nДанные:\n`;
+                        
                         const duties = STATE.duties[STATE.currentMonth] || {};
-                        if (Object.keys(duties).length > 0) {
-                            Object.keys(duties).sort((a,b) => parseInt(a) - parseInt(b)).forEach(day => {
-                                prompt += `${day}: ${duties[day]}\n`;
-                            });
-                        } else {
-                            prompt += `Нет данных.\n`;
-                        }
-
-                        prompt += `\nГрафик техников:\n`;
                         const techDuties = STATE.techDuties[STATE.currentMonth] || {};
-                        if (Object.keys(techDuties).length > 0) {
-                            Object.keys(techDuties).sort((a,b) => parseInt(a) - parseInt(b)).forEach(day => {
-                                const assignments = techDuties[day].map(a => `${a.person} (${a.shift})`).join(', ');
-                                prompt += `${day}: ${assignments}\n`;
-                            });
-                        } else {
-                            prompt += `Нет данных.\n`;
-                        }
-
-                        prompt += `\nОбщий график:\n`;
                         const generalSchedule = STATE.generalSchedule[STATE.currentMonth] || {};
-                        if (Object.keys(generalSchedule).length > 0) {
-                            Object.keys(generalSchedule).sort((a,b) => parseInt(a) - parseInt(b)).forEach(day => {
-                                const assignments = generalSchedule[day].map(a => `${a.person} (${a.shift})`).join(', ');
-                                prompt += `${day}: ${assignments}\n`;
-                            });
-                        } else {
-                            prompt += `Нет данных.\n`;
-                        }
 
-                        prompt += `\nСводка должна быть на русском языке.`;
+                        prompt += `Дежурства: ${JSON.stringify(duties)}\n`;
+                        prompt += `Техники: ${JSON.stringify(techDuties)}\n`;
+                        prompt += `Общий: ${JSON.stringify(generalSchedule)}\n`;
 
-                        console.log("Sending prompt to proxy:", prompt);
-
-                        // Вызов прокси-сервиса
-                        const response = await fetch("https://gemini-proxy.ik2grafik.workers.dev", {
+                        const response = await fetch(CONFIG.WORKER_URLS.GEMINI, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                prompt: prompt,
-                            }),
+                            body: JSON.stringify({ prompt }),
                         });
                         const data = await response.json();
-                        
-                        // Парсинг ответа, как указано
                         const summaryText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
                         if (summaryText) {
-                            VIEW.showSummaryModal(summaryText, fullMonthName);
+                            VIEW.showSummaryModal(summaryText, `${monthName} ${STATE.year}`);
                         } else {
-                            VIEW.showNotification('Не удалось сгенерировать сводку. Попробуйте еще раз.', 'error');
-                            console.error("Proxy response structure unexpected or summary missing:", data);
+                            VIEW.showNotification('Не удалось сгенерировать сводку.', 'error');
                         }
                     } catch (e) {
-                        console.error("Error calling Gemini proxy:", e);
-                        VIEW.showNotification('Ошибка при обращении к Gemini прокси: ' + (e.message || 'Неизвестная ошибка'), 'error');
+                        console.error("Ошибка вызова Gemini proxy:", e);
+                        VIEW.showNotification('Ошибка при генерации сводки.', 'error');
                     } finally {
                         VIEW.hideLoadingIndicator();
                     }
                 },
-
-                changeYear(newYear) {
-                    STATE.year = parseInt(newYear, 10);
-                    SERVICE.setupFirestoreListeners();
-                    VIEW.renderAll();
-                    VIEW.renderMonthSelector();
-                }
             };
 
             /**
              * VIEW: Отвечает за все манипуляции с DOM. Только читает из STATE.
              */
             const VIEW = {
-                // DOM elements references, initialized after renderAppShell
-                // Static elements referenced directly at the top of the IIFE
+                // Ссылки на статические элементы DOM
                 loadingIndicator: loadingIndicatorElement,
                 editModalOverlay: editModalOverlayElement,
                 editModalTitle: editModalTitleElement,
@@ -1137,13 +687,11 @@
                 viewModalBody: viewModalBodyElement,
                 confirmModalOverlay: confirmModalOverlayElement,
                 confirmModalMessage: confirmModalMessageElement,
-                confirmModalConfirmBtn: confirmModalConfirmBtnElement,
-                confirmModalCancelBtn: confirmModalCancelBtnElement,
                 summaryModalOverlay: summaryModalOverlayElement,
                 summaryModalTitle: summaryModalTitleElement,
                 summaryModalBody: summaryModalBodyElement,
 
-                // Elements inside appContainer, initialized by initAppElements
+                // Ссылки на динамические элементы DOM (инициализируются после отрисовки)
                 newOfficerNameInput: null,
                 newOfficerTelegramIdInput: null,
                 dutyCalendarGrid: null,
@@ -1154,297 +702,161 @@
                 actionButtonsWrapper: null,
                 tabNavigation: null,
                 toggleEditModeBtn: null,
-                statisticsSection: null,
-                managementSection: null,
-                addPersonBtn: null, // Добавлено для ссылки на кнопку "Добавить"
-            };
-
-            VIEW.init = function() {
-                this.initAppElements();
-                this.renderAll();
-            };
+                addPersonBtn: null,
             
-            VIEW.renderAppShell = function() {
-                const container = document.querySelector(CONFIG.DOM_SELECTORS.container);
-                if (!container) {
-                    console.error("Error: App container not found. Cannot render app shell.");
-                    return;
-                }
-                container.innerHTML = `
-                    <header class="header">
-                        <div class="user-info" id="userInfo"></div>
-                        <h1>Календарь дежурств</h1>
-                        <div class="month-year-selectors">
-                            <div class="custom-dropdown" id="monthDropdown">
-                                <div class="dropdown-selected" id="monthDropdownSelected"></div>
-                                <div class="dropdown-list" id="monthDropdownList"></div>
+                renderAppShell() {
+                    const container = document.querySelector(CONFIG.DOM_SELECTORS.container);
+                    if (!container) return;
+                    container.innerHTML = `
+                        <header class="header">
+                            <div class="user-info" id="userInfo"></div>
+                            <h1>Календарь дежурств</h1>
+                            <div class="month-year-selectors">
+                                <div class="custom-dropdown" id="monthDropdown"></div>
+                                <div class="custom-dropdown" id="yearDropdown"></div>
                             </div>
-                            <div class="custom-dropdown" id="yearDropdown">
-                                <div class="dropdown-selected" id="yearDropdownSelected"></div>
-                                <div class="dropdown-list" id="yearDropdownList"></div>
+                        </header>
+                        <main class="main-content">
+                            <nav class="tab-navigation" id="tabNavigation"></nav>
+                            <div class="section-container">
+                                <div id="dutyTab" class="tab-content active"><div class="calendar-grid" id="dutyCalendarGrid" data-calendar-type="duty"></div></div>
+                                <div id="technicianTab" class="tab-content"><div class="calendar-grid" id="technicianCalendarGrid" data-calendar-type="technician"></div></div>
+                                <div id="generalTab" class="tab-content"><div class="calendar-grid" id="generalCalendarGrid" data-calendar-type="general"></div></div>
                             </div>
-                        </div>
-                    </header>
-                    <main class="main-content">
-                        <nav class="tab-navigation" id="tabNavigation">
-                            <button class="tab-button active btn" data-tab="duty">График дежурств</button>
-                            <button class="tab-button btn" data-tab="technician">График техников</button>
-                            <button class="tab-button btn" data-tab="general">Общий график</button>
-                        </nav>
-                        <div class="section-container">
-                            <div id="dutyTab" class="tab-content active"><div class="calendar-grid" id="dutyCalendarGrid" data-calendar-type="duty"></div></div>
-                            <div id="technicianTab" class="tab-content"><div class="calendar-grid" id="technicianCalendarGrid" data-calendar-type="technician"></div></div>
-                            <div id="generalTab" class="tab-content"><div class="calendar-grid" id="generalCalendarGrid" data-calendar-type="general"></div></div>
-                        </div>
-                        <div id="editModeBtnWrapper" style="display:flex;justify-content:center;margin:18px 0 0 0;">
-                            <button class="btn btn--edit-mode" id="toggleEditModeBtn" data-action="toggleEditMode">Редактировать</button>
-                        </div>
-                        <div class="action-buttons-wrapper hidden" id="actionButtons">
-                            <button class="btn btn--save" data-action="save">Сохранить изменения</button>
-                            <button class="btn btn--cancel" data-action="cancel">Отменить изменения</button>
-                            <button class="btn btn--clear" data-action="clear">Очистить месяц</button>
-                        </div>
-                        <button class="btn btn--toggle" data-action="toggleSection" data-target="statisticsSection">Статистика</button>
-                        <div class="section-container hidden-section" id="statisticsSection">
-                            <h3>Статистика дежурств</h3>
-                            <div class="stats-list" id="statsList"></div>
-                            <button class="btn btn--blue" style="margin-top: 15px;" data-action="generateMonthSummary">✨ Сгенерировать сводку за месяц</button>
-                        </div>
-                        <button class="btn btn--toggle" data-action="toggleSection" data-target="managementSection" style="margin-top: 10px;">Управление</button>
-                        <div class="section-container hidden-section" id="managementSection">
-                            <h3>Управление персоналом</h3>
-                            <div class="officer-management-controls">
-                                <input type="text" id="newOfficerName" placeholder="Имя нового сотрудника (Фамилия И.О.)">
-                                <input type="text" id="newOfficerTelegramId" placeholder="Telegram ID (обязательно)">
-                                <button class="btn btn--save" data-action="addPerson">Добавить</button>
+                            <div id="editModeBtnWrapper" style="display:flex;justify-content:center;margin:18px 0 0 0;">
+                                <button class="btn btn--edit-mode" id="toggleEditModeBtn" data-action="toggleEditMode">Редактировать</button>
                             </div>
-                            <div class="current-officers-list" id="currentOfficersList"></div>
-                        </div>
-                    </main>`;
-                this.renderUserInfo();
-            };
+                            <div class="action-buttons-wrapper hidden" id="actionButtons"></div>
+                            <button class="btn btn--toggle" data-action="toggleSection" data-target="statisticsSection">Статистика</button>
+                            <div class="section-container hidden-section" id="statisticsSection">
+                                <h3>Статистика дежурств</h3>
+                                <div class="stats-list" id="statsList"></div>
+                                <button class="btn btn--blue" style="margin-top: 15px;" data-action="generateMonthSummary">✨ Сгенерировать сводку</button>
+                            </div>
+                            <button class="btn btn--toggle" data-action="toggleSection" data-target="managementSection" style="margin-top: 10px;">Управление</button>
+                            <div class="section-container hidden-section" id="managementSection">
+                                <h3>Управление персоналом</h3>
+                                <div class="officer-management-controls">
+                                    <input type="text" id="newOfficerName" placeholder="Имя (Фамилия И.О.)">
+                                    <input type="text" id="newOfficerTelegramId" placeholder="Telegram ID">
+                                    <button class="btn btn--save" data-action="addPerson" id="addPersonBtn">Добавить</button>
+                                </div>
+                                <div class="current-officers-list" id="currentOfficersList"></div>
+                            </div>
+                        </main>`;
+                },
 
-            VIEW.renderMonthSelector = function() {
-                const monthNames = [];
-                for (let i = 0; i < 12; i++) {
-                    monthNames.push(new Date(STATE.year, i).toLocaleString('ru-RU', { month: 'long' }));
-                }
-                const monthDropdownSelected = document.getElementById('monthDropdownSelected');
-                const monthDropdownList = document.getElementById('monthDropdownList');
-                if (monthDropdownSelected && monthDropdownList) {
-                    monthDropdownSelected.textContent = monthNames[STATE.currentMonth].charAt(0).toUpperCase() + monthNames[STATE.currentMonth].slice(1);
-                    monthDropdownList.innerHTML = '';
-                    monthNames.forEach((name, i) => {
-                        const item = document.createElement('div');
-                        item.className = 'dropdown-item' + (i === STATE.currentMonth ? ' selected' : '');
-                        item.textContent = name.charAt(0).toUpperCase() + name.slice(1);
-                        item.dataset.value = i;
-                        item.addEventListener('click', () => {
-                            SERVICE.changeMonth(i);
-                            monthDropdownList.classList.remove('show');
-                        });
-                        monthDropdownList.appendChild(item);
-                    });
-                }
-                const yearDropdownSelected = document.getElementById('yearDropdownSelected');
-                const yearDropdownList = document.getElementById('yearDropdownList');
-                if (yearDropdownSelected && yearDropdownList) {
-                    yearDropdownSelected.textContent = STATE.year;
-                    yearDropdownList.innerHTML = '';
-                    for (let y = 2024; y <= 2026; y++) {
-                        const item = document.createElement('div');
-                        item.className = 'dropdown-item' + (y === STATE.year ? ' selected' : '');
-                        item.textContent = y;
-                        item.dataset.value = y;
-                        item.addEventListener('click', () => {
-                            SERVICE.changeYear(y);
-                            yearDropdownList.classList.remove('show');
-                        });
-                        yearDropdownList.appendChild(item);
+                initAppElements() {
+                    const selectors = {
+                        newOfficerNameInput: CONFIG.DOM_SELECTORS.newOfficerName,
+                        newOfficerTelegramIdInput: CONFIG.DOM_SELECTORS.newOfficerTelegramId,
+                        dutyCalendarGrid: CONFIG.DOM_SELECTORS.dutyCalendarGrid,
+                        technicianCalendarGrid: CONFIG.DOM_SELECTORS.technicianCalendarGrid,
+                        generalCalendarGrid: CONFIG.DOM_SELECTORS.generalCalendarGrid,
+                        statsList: CONFIG.DOM_SELECTORS.statsList,
+                        currentOfficersList: CONFIG.DOM_SELECTORS.currentOfficersList,
+                        actionButtonsWrapper: CONFIG.DOM_SELECTORS.actionButtons,
+                        tabNavigation: CONFIG.DOM_SELECTORS.tabNavigation,
+                        toggleEditModeBtn: '#toggleEditModeBtn',
+                        addPersonBtn: '#addPersonBtn',
+                    };
+                    for (const key in selectors) {
+                        this[key] = document.querySelector(selectors[key]);
                     }
-                }
-            };
+                },
 
-            document.addEventListener('click', function(e) {
-                document.querySelectorAll('.custom-dropdown').forEach(drop => {
-                    if (!drop.contains(e.target)) {
-                        drop.querySelector('.dropdown-list')?.classList.remove('show');
+                renderAll() {
+                    this.renderMonthSelector();
+                    this.renderTabsAndButtons();
+                    this.renderAllCalendars();
+                    this.renderStatistics();
+                    this.renderManagementList();
+                    this.updateManagementSectionVisibility();
+                },
+
+                renderUnauthorized(reason) {
+                    const container = document.querySelector(CONFIG.DOM_SELECTORS.container);
+                    if (!container) return;
+                    const messages = {
+                        telegram_auth_failed: '<h1>Ошибка авторизации</h1><p>Не удалось подтвердить вашу сессию Telegram. Пожалуйста, убедитесь, что вы открываете приложение через официальный клиент Telegram.</p>',
+                        firebase_init_failed: '<h1>Ошибка Сервиса</h1><p>Не удалось подключиться к базе данных. Пожалуйста, попробуйте позже.</p>',
+                        auth_failed: '<h1>Ошибка входа</h1><p>Не удалось выполнить вход в систему. Проверьте настройки Firebase Authentication.</p>',
+                        guest_role: `<h1>Доступ ограничен</h1><p>Ваша заявка на доступ ожидает одобрения администратором.</p><p>Ваш Telegram ID: <strong>${SERVICE.sanitizeInput(STATE.telegramUser?.id.toString() || 'Неизвестно')}</strong></p>`,
+                        unhandled_error: '<h1>Произошла ошибка</h1><p>Приложение столкнулось с неожиданной ошибкой. Пожалуйста, перезагрузите страницу.</p>'
+                    };
+                    container.innerHTML = `<div class="unauthorized">${messages[reason] || messages.unhandled_error}</div>`;
+                },
+
+                showLoadingIndicator() { if (this.loadingIndicator) this.loadingIndicator.style.display = 'flex'; },
+                hideLoadingIndicator() { if (this.loadingIndicator) this.loadingIndicator.style.display = 'none'; },
+
+                renderUserInfo() {
+                    const userInfoContainer = document.getElementById('userInfo');
+                    if (userInfoContainer) {
+                        const { first_name, id } = STATE.telegramUser;
+                        const roleText = CONFIG.ROLE_NAMES[STATE.userRole] || 'Неизвестно';
+                        userInfoContainer.innerHTML = `Вы: <span>${SERVICE.sanitizeInput(first_name)}</span> | Роль: <span>${roleText}</span>`;
                     }
-                });
-            });
-            document.addEventListener('click', function(e) {
-                if (e.target.classList.contains('dropdown-selected')) {
-                    const list = e.target.nextElementSibling;
-                    if (list) list.classList.toggle('show');
-                }
-            });
+                },
 
-            VIEW.initAppElements = function() {
-                // Get elements that are part of the dynamically rendered app shell
-                const dynamicSelectors = {
-                    newOfficerNameInput: CONFIG.DOM_SELECTORS.newOfficerName,
-                    newOfficerTelegramIdInput: CONFIG.DOM_SELECTORS.newOfficerTelegramId,
-                    dutyCalendarGrid: CONFIG.DOM_SELECTORS.dutyCalendarGrid,
-                    technicianCalendarGrid: CONFIG.DOM_SELECTORS.technicianCalendarGrid,
-                    generalCalendarGrid: CONFIG.DOM_SELECTORS.generalCalendarGrid,
-                    statsList: CONFIG.DOM_SELECTORS.statsList,
-                    currentOfficersList: CONFIG.DOM_SELECTORS.currentOfficersList,
-                    actionButtonsWrapper: CONFIG.DOM_SELECTORS.actionButtons,
-                    tabNavigation: CONFIG.DOM_SELECTORS.tabNavigation,
-                    toggleEditModeBtn: '#toggleEditModeBtn',
-                    statisticsSection: '#statisticsSection',
-                    managementSection: '#managementSection',
-                    addPersonBtn: '[data-action="addPerson"]', // Добавлено для ссылки на кнопку "Добавить"
-                };
+                renderMonthSelector() {
+                    const monthDropdown = document.getElementById('monthDropdown');
+                    const yearDropdown = document.getElementById('yearDropdown');
+                    if (!monthDropdown || !yearDropdown) return;
 
-                for (const key in dynamicSelectors) {
-                    if (dynamicSelectors.hasOwnProperty(key)) {
-                        const selector = dynamicSelectors[key];
-                        this[key] = document.querySelector(selector);
-                        if (!this[key]) {
-                            const errorMessage = `Ошибка инициализации DOM: Элемент '${selector}' (ключ: ${key}) не найден.`;
-                            console.error(errorMessage);
-                            throw new Error(errorMessage);
+                    const monthNames = Array.from({length: 12}, (_, i) => new Date(0, i).toLocaleString('ru-RU', { month: 'long' }));
+                    monthDropdown.innerHTML = this.createDropdownHTML('month', monthNames, STATE.currentMonth);
+                    
+                    const years = Array.from({length: 3}, (_, i) => new Date().getFullYear() -1 + i);
+                    yearDropdown.innerHTML = this.createDropdownHTML('year', years, STATE.year);
+                },
+
+                createDropdownHTML(type, items, selectedValue) {
+                    const selectedDisplay = type === 'month' ? items[selectedValue] : selectedValue;
+                    const optionsHTML = items.map((item, index) => {
+                        const value = type === 'month' ? index : item;
+                        return `<div class="dropdown-item ${value === selectedValue ? 'selected' : ''}" data-type="${type}" data-value="${value}">${item}</div>`;
+                    }).join('');
+                    return `<div class="dropdown-selected">${selectedDisplay}</div><div class="dropdown-list">${optionsHTML}</div>`;
+                },
+
+                renderTabsAndButtons() {
+                    if (this.tabNavigation) {
+                        this.tabNavigation.innerHTML = `
+                            <button class="tab-button ${STATE.activeTab === 'duty' ? 'active' : ''} btn" data-tab="duty">Дежурства</button>
+                            <button class="tab-button ${STATE.activeTab === 'technician' ? 'active' : ''} btn" data-tab="technician">Техники</button>
+                            <button class="tab-button ${STATE.activeTab === 'general' ? 'active' : ''} btn" data-tab="general">Общий</button>`;
+                    }
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === `${STATE.activeTab}Tab`));
+
+                    if (this.actionButtonsWrapper) {
+                        this.actionButtonsWrapper.classList.toggle('hidden', !STATE.isEditMode);
+                        if(STATE.isEditMode) {
+                            this.actionButtonsWrapper.innerHTML = `
+                                <button class="btn btn--save" data-action="save">Сохранить</button>
+                                <button class="btn btn--cancel" data-action="cancel">Отменить</button>
+                                <button class="btn btn--clear" data-action="clear">Очистить</button>`;
                         }
                     }
-                }
-            };
-
-            VIEW.showLoadingIndicator = function() {
-                if (this.loadingIndicator) this.loadingIndicator.style.display = 'flex';
-            };
-
-            VIEW.hideLoadingIndicator = function() {
-                if (this.loadingIndicator) this.loadingIndicator.style.display = 'none';
-            };
-
-            VIEW.renderUserInfo = function() {
-                const userInfoContainer = document.getElementById('userInfo');
-                if (userInfoContainer) {
-                    const { first_name, username, id } = STATE.telegramUser;
-                    const roleText = CONFIG.ROLE_NAMES[STATE.userRole] || 'Неизвестно';
-                    userInfoContainer.innerHTML = `Вы вошли как <span>${SERVICE.sanitizeInput(first_name)}</span> (@${SERVICE.sanitizeInput(username)}) | ID: <span>${SERVICE.sanitizeInput(id.toString())}</span> | Роль: <span>${roleText}</span>`;
-                }
-                // Обновляем видимость секции управления персоналом
-                this.updateManagementSectionVisibility();
-            };
-
-            VIEW.renderUnauthorized = function(reason) {
-                const container = document.querySelector(CONFIG.DOM_SELECTORS.container);
-                if (!container) {
-                    console.error("Error: App container not found for unauthorized view.");
-                    return;
-                }
-                let messageHtml = '';
-                if (reason === 'auth_failed') {
-                    messageHtml = `
-                        <h1>Ошибка аутентификации</h1>
-                        <p>Не удалось войти в систему. Возможно, Firebase Authentication не включен для вашего проекта в консоли Firebase.</p>
-                        <p>Пожалуйста, перейдите в <a href="https://console.firebase.google.com/" target="_blank">консоль Firebase</a>, выберите ваш проект "ik2grafik", затем раздел "Authentication" и убедитесь, что хотя бы один метод входа включен (например, "Anonymous" или "Email/Password").</p>
-                        <p>После этого попробуйте перезапустить приложение.</p>
-                    `;
-                } else if (reason === 'guest_role') {
-                    messageHtml = `
-                        <h1>Доступ ограничен</h1>
-                        <p>Ваша заявка на доступ ожидает одобрения администратором.</p>
-                        <p>Ваш Telegram ID: <strong>${SERVICE.sanitizeInput(STATE.telegramUser?.id.toString() || 'Неизвестно')}</strong></p>
-                        <p>Пожалуйста, сообщите его администратору для получения доступа.</p>
-                    `;
-                } else if (reason === 'telegram_auth_failed') {
-                    messageHtml = `
-                        <h1>Ошибка авторизации Telegram</h1>
-                        <p>Не удалось подтвердить подпись данных Telegram WebApp.</p>
-                        <p>Пожалуйста, убедитесь, что вы открываете приложение через официальный клиент Telegram и попробуйте еще раз.</p>
-                        <p>Если проблема сохраняется, обратитесь к администратору.</p>
-                    `;
-                } else if (reason === 'unhandled_error') {
-                    messageHtml = `
-                        <h1>Произошла ошибка</h1>
-                        <p>Приложение столкнулось с неожиданной ошибкой во время инициализации. Пожалуйста, попробуйте перезагрузить страницу или свяжитесь с администратором.</p>
-                    `;
-                } else {
-                    messageHtml = `
-                        <h1>Доступ ограничен</h1>
-                        <p>Неизвестная причина ограничения доступа.</p>
-                    `;
-                }
-
-                container.innerHTML = `<div class="unauthorized">${messageHtml}</div>`;
-                this.hideLoadingIndicator();
-            };
-
-            VIEW.renderAll = function() {
-                this.renderMonthSelector();
-                this.renderTabsAndButtons(); // Вызов новой функции
-                this.renderAllCalendars();
-                this.renderStatistics();
-                this.renderManagementList();
-            };
-
-            // Новая функция для рендеринга вкладок и кнопок действий
-            VIEW.renderTabsAndButtons = function() {
-                // 1) Скрываем/показываем кнопку редактирования
-                const editBtn = this.toggleEditModeBtn; // Используем ссылку из VIEW
-                if (editBtn) { // Проверяем, что кнопка существует
-                    if (STATE.userRole !== 'admin' && STATE.userRole !== 'boss') {
-                        editBtn.style.display = 'none';
-                    } else {
-                        editBtn.style.display = ''; // вернуть default (flex в данном случае)
+                    if (this.toggleEditModeBtn) {
+                        this.toggleEditModeBtn.textContent = STATE.isEditMode ? 'Завершить' : 'Редактировать';
+                        this.toggleEditModeBtn.style.display = (STATE.userRole === 'guest') ? 'none' : 'flex';
                     }
-                }
+                },
 
-                if (this.tabNavigation) {
-                    // Update active tab button
-                    this.tabNavigation.querySelectorAll('.tab-button').forEach(button => {
-                        if (button.dataset.tab === STATE.activeTab) {
-                            button.classList.add('active');
-                        } else {
-                            button.classList.remove('active');
-                        }
-                    });
-                    // Show/hide tab content
-                    document.querySelectorAll('.tab-content').forEach(content => {
-                        if (content.id === `${STATE.activeTab}Tab`) {
-                            content.classList.add('active');
-                        } else {
-                            content.classList.remove('active');
-                        }
-                    });
-                }
-
-                if (this.actionButtonsWrapper) {
-                    if (STATE.isEditMode) {
-                        this.actionButtonsWrapper.classList.remove('hidden');
-                    } else {
-                        this.actionButtonsWrapper.classList.add('hidden');
-                    }
-                }
-
-                if (this.toggleEditModeBtn) {
-                    this.toggleEditModeBtn.textContent = STATE.isEditMode ? 'Завершить редактирование' : 'Редактировать';
-                    if (!(STATE.userRole === 'admin' || STATE.userRole === 'boss' || STATE.userRole === 'worker')) {
-                        this.toggleEditModeBtn.disabled = true;
-                    } else {
-                        this.toggleEditModeBtn.disabled = false;
-                    }
-                }
-            };
-
-            VIEW.renderAllCalendars = function() {
-                this.renderCalendar('duty');
-                this.renderCalendar('technician');
-                this.renderCalendar('general');
-            };
-            
-            VIEW.renderCalendar = function(calendarType, changedDay = null) {
-                const grid = this[`${calendarType}CalendarGrid`];
-                if (!grid) return;
-
-                const dataMap = { duty: STATE.duties, technician: STATE.techDuties, general: STATE.generalSchedule };
-                const monthData = dataMap[calendarType][STATE.currentMonth] || {};
+                renderAllCalendars() {
+                    this.renderCalendar('duty');
+                    this.renderCalendar('technician');
+                    this.renderCalendar('general');
+                },
                 
-                if (changedDay === null) {
-                    // Full re-render if no specific day is provided
+                renderCalendar(calendarType) {
+                    const grid = this[`${calendarType}CalendarGrid`];
+                    if (!grid) return;
+
+                    const dataMap = { duty: STATE.duties, technician: STATE.techDuties, general: STATE.generalSchedule };
+                    const monthData = dataMap[calendarType]?.[STATE.currentMonth] || {};
+                    
                     const fragment = document.createDocumentFragment();
                     ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].forEach(day => {
                         const header = document.createElement('div');
@@ -1468,544 +880,263 @@
                         cell.dataset.day = day;
                         
                         const date = new Date(STATE.year, STATE.currentMonth, day);
-                        const dayOfWeek = (date.getDay() + 6) % 7;
-                        if (dayOfWeek >= 5) cell.classList.add('weekend');
+                        if ((date.getDay() + 6) % 7 >= 5) cell.classList.add('weekend');
                         if (date.toDateString() === today.toDateString()) cell.classList.add('current-day');
-                        
-                        cell.innerHTML = `<div class="day-number">${day}</div><div class="day-entries-container"></div>`;
                         
                         const dayAssignments = monthData[day] || [];
                         const assignmentsArray = Array.isArray(dayAssignments) ? dayAssignments : (typeof dayAssignments === 'string' ? [{ person: dayAssignments, shift: '' }] : []);
                         
-                        const entriesContainer = cell.querySelector('.day-entries-container');
-                        entriesContainer.innerHTML = ''; // Clear existing entries before appending
-                        entriesContainer.appendChild(this.createDayEntry(assignmentsArray));
-                        
+                        cell.innerHTML = `<div class="day-number">${day}</div><div class="day-entries-container">${this.createDayEntryHTML(assignmentsArray)}</div>`;
                         fragment.appendChild(cell);
                     }
                     
                     grid.innerHTML = '';
                     grid.appendChild(fragment);
-                } else {
-                    // Partial update for a specific day
-                    const cell = grid.querySelector(`.day-cell[data-day="${changedDay}"]`);
-                    if (cell) {
-                        const entriesContainer = cell.querySelector('.day-entries-container');
-                        entriesContainer.innerHTML = ''; // Clear existing entries
+                },
+                
+                createDayEntryHTML(assignmentsArray) {
+                    if (assignmentsArray.length === 0) return `<div class="avatar-initials avatar-empty"></div>`;
 
-                        const dayAssignments = monthData[changedDay] || [];
-                        const assignmentsArray = Array.isArray(dayAssignments) ? dayAssignments : (typeof dayAssignments === 'string' ? [{ person: dayAssignments, shift: '' }] : []);
-                        
-                        entriesContainer.appendChild(this.createDayEntry(assignmentsArray));
-                    }
-                }
-            };
-            
-            VIEW.createDayEntry = function(assignmentsArray) {
-                const fragment = document.createDocumentFragment();
-
-                function getShiftShort(shift) {
-                    if (!shift) return '';
-                    const map = {
-                        'День караул': 'ДК',
-                        'Ночь караул': 'НК',
-                        'Отпуск': 'ОТ',
-                        'Больничный': 'БЛ',
-                        'Выходной': 'В',
-                        'Отсыпной': 'О',
-                        'ДС': 'ДС',
-                        '8': '8'
+                    const getShiftShort = (shift) => {
+                        if (!shift) return '';
+                        const map = { 'День караул': 'ДК', 'Ночь караул': 'НК', 'Отпуск': 'ОТ', 'Больничный': 'БЛ', 'Выходной': 'В', 'Отсыпной': 'О', 'ДС': 'ДС', '8': '8' };
+                        return map[shift] || shift.slice(0, 2).toUpperCase();
                     };
-                    return map[shift] || shift.slice(0, 2).toUpperCase();
-                }
 
-                if (assignmentsArray.length === 0) {
-                    const emptyEntry = document.createElement('div');
-                    emptyEntry.className = 'avatar-initials avatar-empty';
-                    fragment.appendChild(emptyEntry);
-                    return fragment;
-                }
-
-                assignmentsArray.forEach(assignment => {
-                    const person = assignment.person;
-                    const shift = assignment.shift;
-                    let initials = '';
-                    if (person) {
+                    return assignmentsArray.map(assignment => {
+                        const person = assignment.person;
+                        const shift = assignment.shift;
                         const parts = person.split(' ');
-                        if (parts.length > 1) {
-                            initials = (parts[0][0] || '').toUpperCase() + (parts[1][0] || '').toUpperCase();
-                        } else {
-                            initials = (person[0] || '').toUpperCase();
-                        }
-                    }
-                    const shortShift = getShiftShort(shift);
-                    const entry = document.createElement('div');
-                    
-                    // Apply class based on number of assignments
-                    if (assignmentsArray.length === 1) {
-                        entry.className = 'avatar-initials avatar-single';
-                    } else if (assignmentsArray.length === 2) {
-                        entry.className = 'avatar-initials avatar-two';
-                    } else {
-                        entry.className = 'avatar-initials avatar-multiple';
-                    }
+                        const initials = parts.length > 1 ? (parts[0][0] || '') + (parts[1][0] || '') : (person[0] || '');
+                        const shortShift = getShiftShort(shift);
+                        const personColor = this.getColorFor(person);
+                        const textColor = this.isLightColor(personColor) ? '#333' : '#fff';
+                        
+                        let avatarClass = 'avatar-initials';
+                        if (assignmentsArray.length === 1) avatarClass += ' avatar-single';
+                        else if (assignmentsArray.length === 2) avatarClass += ' avatar-two';
+                        else avatarClass += ' avatar-multiple';
 
-                    entry.title = shift ? `${SERVICE.sanitizeInput(person)} (${SERVICE.sanitizeInput(shift)})` : SERVICE.sanitizeInput(person);
-                    const personColor = this.getColorFor(person);
-                    entry.style.backgroundColor = personColor;
-                    entry.style.color = this.isLightColor(personColor) ? '#333' : '#fff';
-
-                    entry.innerHTML = `
-                        <span class="avatar-letters">${SERVICE.sanitizeInput(initials)}</span>
-                        ${shift ? `<span class="avatar-shift">${SERVICE.sanitizeInput(shortShift)}</span>` : ''}
-                    `;
-                    fragment.appendChild(entry);
-                });
-                return fragment;
-            };
-
-            VIEW.renderStatistics = function() {
-                const stats = {};
-                STATE.officers.filter(o => o !== CONFIG.NO_DUTY_LABEL).forEach(officer => {
-                    stats[officer] = 0;
-                });
-                
-                Object.values(STATE.duties[STATE.currentMonth] || {}).forEach(officer => {
-                    if (officer && officer !== CONFIG.NO_DUTY_LABEL) {
-                        stats[officer] = (stats[officer] || 0) + 1;
-                    }
-                });
-                
-                const sortedOfficers = Object.keys(stats).sort((a, b) => stats[b] - stats[a] || a.localeCompare(b));
-                
-                const statsList = this.statsList;
-                if (!statsList) return;
-                statsList.innerHTML = '';
-                sortedOfficers.forEach(officer => {
-                    const item = document.createElement('div');
-                    item.className = 'stats-item';
-                    const color = this.getColorFor(officer);
-                    item.innerHTML = `<div class="stats-name" style="background-color:${color}; color:${this.isLightColor(color) ? '#333' : '#fff'}">${SERVICE.sanitizeInput(officer)}</div>
-                                      <div class="stats-count">${stats[officer]}</div>`;
-                    statsList.appendChild(item);
-                });
-            };
-            
-            VIEW.renderManagementList = function() {
-                const list = this.currentOfficersList;
-                if (!list) return;
-
-                // Скрыть или показать секцию управления в зависимости от роли
-                this.updateManagementSectionVisibility();
-
-                let searchInput = document.getElementById('officerSearchInput');
-                if (!searchInput) {
-                    searchInput = document.createElement('input');
-                    searchInput.type = 'text';
-                    searchInput.id = 'officerSearchInput';
-                    searchInput.placeholder = 'Поиск сотрудника...';
-                    searchInput.style.margin = '0 0 10px 0';
-                    searchInput.style.padding = '8px 12px';
-                    searchInput.style.borderRadius = '8px';
-                    searchInput.style.border = '1px solid var(--border-main)';
-                    searchInput.style.width = '100%';
-                    list.parentNode.insertBefore(searchInput, list);
-                }
-                const filter = (searchInput.value || '').toLowerCase();
-                const allUsers = Object.entries(STATE.users).sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
-                const filteredUsers = filter ? allUsers.filter(([, u]) => (u.name || '').toLowerCase().includes(filter)) : allUsers;
-                list.innerHTML = '';
-                filteredUsers.forEach(([id, userData]) => {
-                    // Если пользователь деактивирован, не показываем его в списке
-                    if (userData.active === false) return; 
-
-                    const item = document.createElement('div');
-                    item.className = 'current-officer-item';
-                    const nameSpan = document.createElement('span');
-                    nameSpan.className = 'person-name';
-                    nameSpan.textContent = SERVICE.sanitizeInput(userData.name || 'Неизвестное имя') + (userData.active === false ? ' (неактивен)' : '');
-                    const idSpan = document.createElement('span');
-                    idSpan.className = 'telegram-id';
-                    idSpan.textContent = ` (ID: ${SERVICE.sanitizeInput(id)})`;
-                    item.appendChild(nameSpan);
-                    item.appendChild(idSpan);
-                    const roleSelect = document.createElement('select');
-                    roleSelect.className = 'role-selector';
-                    roleSelect.dataset.personId = id;
-                    
-                    // Доступные роли для назначения в зависимости от текущей роли пользователя
-                    const availableRoles = STATE.userRole === 'admin' ? ['admin', 'boss', 'worker', 'guest'] :
-                                           (STATE.userRole === 'boss' ? ['worker', 'guest'] : ['guest']);
-
-                    availableRoles.forEach(role => {
-                        const option = document.createElement('option');
-                        option.value = role;
-                        option.textContent = CONFIG.ROLE_NAMES[role];
-                        if (userData.role === role) {
-                            option.selected = true;
-                        }
-                        roleSelect.appendChild(option);
-                    });
-                    // Отключение селектора ролей, если текущий пользователь не админ, или пытается изменить свою роль,
-                    // или пользователь деактивирован.
-                    if (STATE.userRole !== 'admin' || id === STATE.telegramUser.id.toString() || userData.active === false) {
-                        roleSelect.disabled = true;
-                    }
-                    roleSelect.addEventListener('change', (e) => {
-                        SERVICE.changePersonRole(e.target.dataset.personId, e.target.value);
-                    });
-                    item.appendChild(roleSelect);
-                    const deleteBtn = document.createElement('button');
-                    deleteBtn.className = 'delete-officer-btn';
-                    deleteBtn.innerHTML = '&times;';
-                    deleteBtn.title = `Деактивировать ${SERVICE.sanitizeInput(userData.name || 'пользователя')}`;
-                    deleteBtn.dataset.action = 'deletePerson';
-                    deleteBtn.dataset.personIdToDelete = id;
-                    if (STATE.userRole !== 'admin' || id === STATE.telegramUser.id.toString() || userData.active === false) {
-                        deleteBtn.disabled = true;
-                    }
-                    item.appendChild(deleteBtn);
-                    list.appendChild(item);
-                });
-                searchInput.oninput = () => this.renderManagementList();
-
-                // Обновление состояния кнопки "Добавить"
-                if (this.addPersonBtn) {
-                    this.addPersonBtn.disabled = STATE.userRole === 'admin' ? false : true; // Only admin can add
-                    this.addPersonBtn.title = STATE.userRole === 'admin' ? "" : "Только администратор может добавлять сотрудников";
-                }
-            };
-
-            // Новая функция для управления видимостью секции управления персоналом
-            VIEW.updateManagementSectionVisibility = function() {
-                if (this.managementSection) {
-                    const toggleButton = document.querySelector('[data-action="toggleSection"][data-target="managementSection"]');
-                    if (STATE.userRole === 'admin' || STATE.userRole === 'boss') {
-                        this.managementSection.style.display = 'block'; // Показываем секцию
-                        if (toggleButton) toggleButton.style.display = 'block'; // Показываем кнопку переключения
-                    } else {
-                        this.managementSection.style.display = 'none'; // Скрываем секцию
-                        if (toggleButton) toggleButton.style.display = 'none'; // Скрываем кнопку переключения
-                    }
-                }
-            };
-
-            const TECHNICIANS_GROUP = ["Денщиков А.А.", "Кузавлев П.С.", "Лебедев А.В."];
-
-            VIEW.showDutyModal = function() {
-                const modal = this.editModalBody;
-                if (!modal) return;
-                this.editModalTitle.textContent = 'Выберите дежурного';
-                
-                const currentAssignment = STATE.duties[STATE.currentMonth][STATE.currentSelectedDay];
-                const allAssignedPeopleOnDay = new Set(SERVICE.getAllDayAssignments(STATE.currentMonth, STATE.currentSelectedDay).map(a => a.person));
-
-                // Filter officers: only show those not assigned anywhere else, or the current selected officer
-                const availableOfficers = STATE.officers.filter(name => 
-                    !allAssignedPeopleOnDay.has(name) || name === currentAssignment
-                );
-
-                const optionsHTML = [...availableOfficers, CONFIG.NO_DUTY_LABEL].map(name => {
-                    const isSelected = (name === currentAssignment || (!currentAssignment && name === CONFIG.NO_DUTY_LABEL));
-                    return `<button class="officer-option btn ${isSelected ? 'selected' : ''}" data-action="selectDuty" data-name="${SERVICE.sanitizeInput(name)}">${SERVICE.sanitizeInput(name)}</button>`;
-                }).join('');
-                
-                modal.innerHTML = `<div class="officer-list">${optionsHTML}</div>`;
-                this.openModal('edit');
-            };
-
-            VIEW.showAssignmentModal = function(calendarType) {
-                const modal = this.editModalBody;
-                if (!modal) return;
-                this.editModalTitle.textContent = `Назначить смену на ${STATE.currentSelectedDay}-е число`;
-                modal.dataset.calendarType = calendarType;
-
-                const officers = STATE.officers.filter(n => !TECHNICIANS_GROUP.includes(n));
-                const technicians = TECHNICIANS_GROUP.filter(n => STATE.technicians.includes(n));
-                const workers = Object.values(STATE.users)
-                    .filter(u => u.role === 'worker' && !officers.includes(u.name) && !technicians.includes(u.name) && u.active !== false)
-                    .map(u => u.name)
-                    .sort();
-
-                const TECHNICIAN_FIVE = ["Морозов В.А.", "Ребраков Т.В.", "Кузавлев П.С.", "Лебедев А.В.", "Денщиков А.А."];
-
-                let allPossiblePeople = [];
-                if (calendarType === 'duty') {
-                    allPossiblePeople = officers;
-                } else if (calendarType === 'technician') {
-                    allPossiblePeople = TECHNICIAN_FIVE;
-                } else if (calendarType === 'general') {
-                    allPossiblePeople = [...officers, ...technicians, ...workers];
-                }
-
-                const day = STATE.currentSelectedDay;
-                const currentMonth = STATE.currentMonth;
-                const allDayAssignments = SERVICE.getAllDayAssignments(currentMonth, day);
-                const allAssignedPeopleOnDay = new Set(allDayAssignments.map(a => a.person));
-
-                // Filter people for the dropdown: only show those not assigned anywhere else for this day
-                const peopleForDropdown = allPossiblePeople.filter(p => !allAssignedPeopleOnDay.has(p));
-
-                // Add current assignments for THIS specific calendar back to the list if they are being edited
-                const currentAssignmentsForThisCalendar = (calendarType === 'technician' ? STATE.techDuties[currentMonth][day] : STATE.generalSchedule[currentMonth][day]) || [];
-                currentAssignmentsForThisCalendar.forEach(assignment => {
-                    if (!peopleForDropdown.includes(assignment.person)) {
-                        peopleForDropdown.push(assignment.person);
-                    }
-                });
-                peopleForDropdown.sort((a,b) => a.localeCompare(b));
-
-
-                let peopleOptionsHTML = '';
-                if (calendarType === 'general') {
-                    const officersForDropdown = peopleForDropdown.filter(p => officers.includes(p));
-                    const techniciansForDropdown = peopleForDropdown.filter(p => technicians.includes(p));
-                    const workersForDropdown = peopleForDropdown.filter(p => workers.includes(p));
-
-                    if (officersForDropdown.length) {
-                        peopleOptionsHTML += '<optgroup label="Офицеры">' + officersForDropdown.map(p => `<option value="${SERVICE.sanitizeInput(p)}">${SERVICE.sanitizeInput(p)}</option>`).join('') + '</optgroup>';
-                    }
-                    if (techniciansForDropdown.length) {
-                        peopleOptionsHTML += '<optgroup label="Техники">' + techniciansForDropdown.map(p => `<option value="${SERVICE.sanitizeInput(p)}">${SERVICE.sanitizeInput(p)}</option>`).join('') + '</optgroup>';
-                    }
-                    if (workersForDropdown.length) {
-                        peopleOptionsHTML += '<optgroup label="Работяги">' + workersForDropdown.map(p => `<option value="${SERVICE.sanitizeInput(p)}">${SERVICE.sanitizeInput(p)}</option>`).join('') + '</optgroup>';
-                    }
-                } else {
-                    peopleOptionsHTML = peopleForDropdown.map(p => `<option value="${SERVICE.sanitizeInput(p)}">${SERVICE.sanitizeInput(p)}</option>`).join('');
-                }
-
-                const personSelectId = 'personSelect';
-                const shiftSelectId = 'shiftSelect';
-                const shiftsForSelect = CONFIG.SHIFT_TYPES;
-                let shiftOptionsHTML = '';
-                if (calendarType === 'technician') {
-                    shiftOptionsHTML = shiftsForSelect.map((s, i) => {
-                        if (s === 'ДС') {
-                            return `<option value="${SERVICE.sanitizeInput(s)}" ${i === 0 ? 'selected' : ''} disabled>${SERVICE.sanitizeInput(s)}</option>`;
-                        } else {
-                            return `<option value="${SERVICE.sanitizeInput(s)}" ${i === 0 ? 'selected' : ''}>${SERVICE.sanitizeInput(s)}</option>`;
-                        }
+                        return `<div class="${avatarClass}" title="${SERVICE.sanitizeInput(person)}${shift ? ` (${SERVICE.sanitizeInput(shift)})` : ''}" style="background-color:${personColor}; color:${textColor};">
+                                    <span class="avatar-letters">${SERVICE.sanitizeInput(initials.toUpperCase())}</span>
+                                    ${shift ? `<span class="avatar-shift">${SERVICE.sanitizeInput(shortShift)}</span>` : ''}
+                                </div>`;
                     }).join('');
-                } else {
-                    shiftOptionsHTML = shiftsForSelect.map((s, i) => `<option value="${SERVICE.sanitizeInput(s)}" ${i === 0 ? 'selected' : ''}>${SERVICE.sanitizeInput(s)}</option>`).join('');
-                }
+                },
 
-                modal.innerHTML = `
-                    <div class="assignment-controls">
-                        <select id="${personSelectId}">${peopleOptionsHTML}</select>
-                        <select id="${shiftSelectId}">${shiftOptionsHTML}</select>
-                        <button class="btn btn--save" data-action="addAssignment">Добавить назначение</button>
-                    </div>
-                    <div class="assignments-list-container">
-                        <h5>Текущие назначения:</h5>
-                        <div id="assignmentsList"></div>
-                    </div>`;
-                this.renderAssignmentModalList(calendarType);
-                this.openModal('edit');
-                setTimeout(() => {
-                    const personSelect = modal.querySelector('#personSelect');
-                    if (personSelect) personSelect.focus();
-                    const shiftSelect = modal.querySelector('#shiftSelect');
-                    if (calendarType === 'technician' && personSelect && shiftSelect) {
-                        personSelect.onchange = function() {
-                            const selectedName = personSelect.value;
-                            Array.from(shiftSelect.options).forEach(opt => {
-                                if (opt.value === 'ДС') {
-                                    opt.disabled = !(selectedName === 'Морозов В.А.' || selectedName === 'Ребраков Т.В.');
-                                }
-                            });
-                            if (shiftSelect.value === 'ДС' && shiftSelect.options[shiftSelect.selectedIndex].disabled) {
-                                shiftSelect.value = shiftSelect.options[0].value;
-                            }
-                        };
-                        personSelect.onchange();
-                    }
-                    if (calendarType === 'general' && personSelect && shiftSelect) {
-                        personSelect.onchange = function() {
-                            const selectedName = personSelect.value;
-                            if (TECHNICIANS_GROUP.includes(selectedName) || workers.includes(selectedName)) {
-                                Array.from(shiftSelect.options).forEach(opt => {
-                                    if (opt.value === 'ДС') opt.disabled = true;
-                                    else opt.disabled = false;
-                                });
-                                if (shiftSelect.value === 'ДС') shiftSelect.value = shiftSelect.options[0].value;
-                            } else {
-                                Array.from(shiftSelect.options).forEach(opt => { opt.disabled = false; });
-                            }
-                        };
-                        personSelect.onchange();
-                    }
-                }, 0);
-            };
-
-            VIEW.showEnlargedDayView = function(day, calendarType) {
-                const { year, currentMonth } = STATE;
-                const fullDate = new Date(year, currentMonth, day).toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
-                this.viewModalTitle.textContent = fullDate;
-                const body = this.viewModalBody;
-                if (!body) return;
-                body.innerHTML = '';
-
-                // Collect all unique assignments for the day
-                const uniqueAssignments = new Map(); // Map to store unique person -> {person, shift}
-
-                const allDayAssignments = SERVICE.getAllDayAssignments(currentMonth, day);
-                allDayAssignments.forEach(assignment => {
-                    const key = `${assignment.person} (${assignment.shift})`;
-                    if (!uniqueAssignments.has(key)) {
-                        uniqueAssignments.set(key, assignment);
-                    }
-                });
-
-                const sortedUniqueAssignments = Array.from(uniqueAssignments.values()).sort((a, b) => a.person.localeCompare(b.person));
-
-                if (sortedUniqueAssignments.length > 0) {
-                    const h = document.createElement('h5');
-                    h.textContent = 'Назначения на этот день:';
-                    h.style.margin = '10px 0 5px 0';
-                    h.style.fontWeight = 'bold';
-                    h.style.color = '#00bfff';
-                    body.appendChild(h);
-
-                    sortedUniqueAssignments.forEach(a => {
-                        const p = document.createElement('p');
-                        const color = this.getColorFor(a.person);
-                        p.style.backgroundColor = color;
-                        p.style.color = this.isLightColor(color) ? '#333' : '#fff';
-                        p.style.borderRadius = '7px';
-                        p.style.padding = '6px 10px';
-                        p.style.margin = '2px 0';
-                        p.textContent = `${SERVICE.sanitizeInput(a.person)}${a.shift ? ' ('+SERVICE.sanitizeInput(a.shift)+')' : ''}`;
-                        body.appendChild(p);
+                renderStatistics() {
+                    if (!this.statsList) return;
+                    const stats = {};
+                    STATE.officers.forEach(o => { stats[o] = 0; });
+                    Object.values(STATE.duties[STATE.currentMonth] || {}).forEach(officer => {
+                        if (stats[officer] !== undefined) stats[officer]++;
                     });
-                } else {
-                    body.innerHTML = '<p>На этот день нет назначений.</p>';
-                }
-                this.openModal('view');
-            };
-            
-            VIEW.renderAssignmentModalList = function(calendarType) {
-                const list = document.getElementById('assignmentsList');
-                if (!list) return;
+                    
+                    this.statsList.innerHTML = Object.entries(stats)
+                        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+                        .map(([officer, count]) => {
+                            const color = this.getColorFor(officer);
+                            return `<div class="stats-item">
+                                        <div class="stats-name" style="background-color:${color}; color:${this.isLightColor(color) ? '#333' : '#fff'}">${SERVICE.sanitizeInput(officer)}</div>
+                                        <div class="stats-count">${count}</div>
+                                    </div>`;
+                        }).join('');
+                },
                 
-                const keyMap = { technician: 'techDuties', general: 'generalSchedule' };
-                const assignments = STATE[keyMap[calendarType]][STATE.currentMonth][STATE.currentSelectedDay] || [];
+                renderManagementList() {
+                    if (!this.currentOfficersList) return;
+                    const allUsers = Object.entries(STATE.users).sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
+                    this.currentOfficersList.innerHTML = allUsers.map(([id, userData]) => {
+                        if (userData.active === false) return ''; // Не показывать неактивных
+                        
+                        const isCurrentUser = id === STATE.telegramUser.id.toString();
+                        const canEdit = STATE.userRole === 'admin' && !isCurrentUser;
+
+                        const roleOptions = Object.entries(CONFIG.ROLE_NAMES).map(([role, name]) => 
+                            `<option value="${role}" ${userData.role === role ? 'selected' : ''}>${name}</option>`
+                        ).join('');
+
+                        return `<div class="current-officer-item">
+                                    <span>${SERVICE.sanitizeInput(userData.name)} (ID: ${id})</span>
+                                    <div class="officer-actions">
+                                        <select class="role-selector" data-person-id="${id}" ${canEdit ? '' : 'disabled'}>${roleOptions}</select>
+                                        <button class="delete-officer-btn" data-action="deletePerson" data-person-id-to-delete="${id}" ${canEdit ? '' : 'disabled'}>&times;</button>
+                                    </div>
+                                </div>`;
+                    }).join('');
+                },
+
+                updateManagementSectionVisibility() {
+                    const section = document.getElementById('managementSection');
+                    const toggleButton = document.querySelector('[data-target="managementSection"]');
+                    if (!section || !toggleButton) return;
+
+                    const show = STATE.userRole === 'admin' || STATE.userRole === 'boss';
+                    toggleButton.style.display = show ? 'block' : 'none';
+                    if (!show) section.classList.add('hidden-section'); // Скрываем, если нет прав
+                },
+
+                showDutyModal() {
+                    this.editModalTitle.textContent = 'Выберите дежурного';
+                    const currentAssignment = STATE.duties[STATE.currentMonth]?.[STATE.currentSelectedDay];
+                    const optionsHTML = [...STATE.officers, CONFIG.NO_DUTY_LABEL].map(name => {
+                        const isSelected = name === currentAssignment;
+                        return `<button class="officer-option btn ${isSelected ? 'selected' : ''}" data-action="selectDuty" data-name="${SERVICE.sanitizeInput(name)}">${SERVICE.sanitizeInput(name)}</button>`;
+                    }).join('');
+                    this.editModalBody.innerHTML = `<div class="officer-list">${optionsHTML}</div>`;
+                    this.openModal('edit');
+                },
+
+                showAssignmentModal(calendarType) {
+                    this.editModalTitle.textContent = `Назначить смену`;
+                    this.editModalBody.dataset.calendarType = calendarType;
+                    
+                    const peopleList = (calendarType === 'technician') ? STATE.technicians : [...new Set([...STATE.officers, ...STATE.technicians])].sort();
+                    const peopleOptions = peopleList.map(p => `<option value="${SERVICE.sanitizeInput(p)}">${SERVICE.sanitizeInput(p)}</option>`).join('');
+                    const shiftOptions = CONFIG.SHIFT_TYPES.map(s => `<option value="${s}">${s}</option>`).join('');
+
+                    this.editModalBody.innerHTML = `
+                        <div class="assignment-controls">
+                            <select id="personSelect">${peopleOptions}</select>
+                            <select id="shiftSelect">${shiftOptions}</select>
+                            <button class="btn btn--save" data-action="addAssignment">Добавить</button>
+                        </div>
+                        <div class="assignments-list-container">
+                            <h5>Текущие назначения:</h5>
+                            <div id="assignmentsList"></div>
+                        </div>`;
+                    this.renderAssignmentModalList(calendarType);
+                    this.openModal('edit');
+                },
+
+                renderAssignmentModalList(calendarType) {
+                    const list = document.getElementById('assignmentsList');
+                    if (!list) return;
+                    const keyMap = { technician: 'techDuties', general: 'generalSchedule' };
+                    const assignments = STATE[keyMap[calendarType]]?.[STATE.currentMonth]?.[STATE.currentSelectedDay] || [];
+                    list.innerHTML = assignments.length === 0 ? 'Нет назначений.' : assignments.map((a, i) => `
+                        <div class="assignment-item">
+                            <span>${SERVICE.sanitizeInput(a.person)} (${SERVICE.sanitizeInput(a.shift)})</span>
+                            <button class="delete-assignment-btn" data-action="deleteAssignment" data-index="${i}">&times;</button>
+                        </div>`).join('');
+                },
+
+                showEnlargedDayView(day) {
+                    const fullDate = new Date(STATE.year, STATE.currentMonth, day).toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+                    this.viewModalTitle.textContent = fullDate;
+                    
+                    const allAssignments = SERVICE.getAllDayAssignments(STATE.currentMonth, day);
+                    if (allAssignments.length > 0) {
+                        this.viewModalBody.innerHTML = '<h5>Назначения на день:</h5>' + allAssignments.map(a => {
+                            const color = this.getColorFor(a.person);
+                            return `<p style="background-color:${color}; color:${this.isLightColor(color) ? '#333' : '#fff'};">${SERVICE.sanitizeInput(a.person)} (${SERVICE.sanitizeInput(a.shift)})</p>`;
+                        }).join('');
+                    } else {
+                        this.viewModalBody.innerHTML = '<p>На этот день нет назначений.</p>';
+                    }
+                    this.openModal('view');
+                },
                 
-                if (assignments.length === 0) {
-                    list.innerHTML = 'Нет назначений.';
-                    return;
-                }
-                list.innerHTML = assignments.map((a, i) => `
-                    <div class="assignment-item">
-                        <span>${SERVICE.sanitizeInput(a.person)} (${SERVICE.sanitizeInput(a.shift)})</span>
-                        <button class="delete-assignment-btn" data-action="deleteAssignment" data-index="${i}">&times;</button>
-                    </div>`).join('');
-            };
-
-            VIEW.openModal = function(type) {
-                const overlay = this[`${type}ModalOverlay`];
-                if (overlay) overlay.classList.add('show');
-                document.querySelector(`.day-cell[data-day='${STATE.currentSelectedDay}']`)?.classList.add('selected-for-modal');
-                if (type === 'edit') {
-                    const closeBtn = overlay.querySelector('.modal-close');
-                    if (closeBtn) closeBtn.style.display = '';
-                }
-            };
-
-            VIEW.closeModal = function() {
-                if (this.editModalOverlay) this.editModalOverlay.classList.remove('show');
-                if (this.viewModalOverlay) this.viewModalOverlay.classList.remove('show');
-                const prevSelected = document.querySelector('.day-cell.selected-for-modal');
-                if (prevSelected) prevSelected.classList.remove('selected-for-modal');
-                STATE.currentSelectedDay = null;
-            };
-            
-            VIEW.showConfirmModal = function(message) {
-                return new Promise(resolve => {
-                    STATE.confirmModalResolve = resolve;
-                    if (this.confirmModalMessage) this.confirmModalMessage.textContent = message;
-                    if (this.confirmModalOverlay) this.confirmModalOverlay.classList.add('show');
-                });
-            };
-
-            VIEW.closeConfirmModal = function(result) {
-                if (this.confirmModalOverlay) this.confirmModalOverlay.classList.remove('show');
-                if (STATE.confirmModalResolve) {
-                    STATE.confirmModalResolve(result);
+                openModal(type) { this[`${type}ModalOverlay`]?.classList.add('show'); },
+                closeModal() {
+                    this.editModalOverlay?.classList.remove('show');
+                    this.viewModalOverlay?.classList.remove('show');
+                },
+                
+                showConfirmModal(message) {
+                    return new Promise(resolve => {
+                        STATE.confirmModalResolve = resolve;
+                        if (this.confirmModalMessage) this.confirmModalMessage.textContent = message;
+                        this.confirmModalOverlay?.classList.add('show');
+                    });
+                },
+                closeConfirmModal(result) {
+                    this.confirmModalOverlay?.classList.remove('show');
+                    if (STATE.confirmModalResolve) STATE.confirmModalResolve(result);
                     STATE.confirmModalResolve = null;
-                }
-            };
+                },
 
-            VIEW.showSummaryModal = function(summaryText, monthYear) {
-                if (this.summaryModalTitle) this.summaryModalTitle.textContent = `Сводка за ${SERVICE.sanitizeInput(monthYear)}`;
-                if (this.summaryModalBody) this.summaryModalBody.innerHTML = `<pre style="white-space: pre-wrap; word-wrap: break-word;">${SERVICE.sanitizeInput(summaryText)}</pre>`;
-                if (this.summaryModalOverlay) this.summaryModalOverlay.classList.add('show');
-            };
+                showSummaryModal(summaryText, monthYear) {
+                    if (this.summaryModalTitle) this.summaryModalTitle.textContent = `Сводка за ${SERVICE.sanitizeInput(monthYear)}`;
+                    if (this.summaryModalBody) this.summaryModalBody.innerHTML = `<pre>${SERVICE.sanitizeInput(summaryText)}</pre>`;
+                    this.summaryModalOverlay?.classList.add('show');
+                },
+                closeSummaryModal() { this.summaryModalOverlay?.classList.remove('show'); },
 
-            VIEW.closeSummaryModal = function() {
-                if (this.summaryModalOverlay) this.summaryModalOverlay.classList.remove('show');
-            };
-
-            VIEW.showNotification = function(message, type = 'info') {
-                const notification = document.createElement('div');
-                notification.className = `notification ${type}`;
-                notification.textContent = message;
-                document.body.appendChild(notification);
+                showNotification(message, type = 'info') {
+                    const notification = document.createElement('div');
+                    notification.className = `notification ${type}`;
+                    notification.textContent = message;
+                    document.body.appendChild(notification);
+                    setTimeout(() => notification.classList.add('show'), 10);
+                    setTimeout(() => {
+                        notification.classList.remove('show');
+                        notification.addEventListener('transitionend', () => notification.remove());
+                    }, 3000);
+                },
                 
-                setTimeout(() => notification.classList.add('show'), 10);
-                setTimeout(() => {
-                    notification.classList.remove('show');
-                    notification.addEventListener('transitionend', () => notification.remove());
-                }, 3000);
-            };
-            
-            VIEW.getColorFor = function(str) {
-                if(!str) return '#ccc';
-                if (STATE.colors[str]) return STATE.colors[str];
-                let hash = 0;
-                for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-                let color = '#';
-                for (let i = 0; i < 3; i++) {
-                    const value = (hash >> (i * 8)) & 0xFF;
-                    color += ('00' + value.toString(16)).substr(-2);
-                }
-                return STATE.colors[str] = color;
-            };
-
-            VIEW.isLightColor = function(hex) {
-                const r = parseInt(hex.substring(1, 3), 16);
-                const g = parseInt(hex.substring(3, 5), 16);
-                const b = parseInt(hex.substring(5, 7), 16);
-                return (r * 299 + g * 587 + b * 114) / 1000 > 180;
+                getColorFor(str) {
+                    if(!str) return '#ccc';
+                    if (STATE.colors[str]) return STATE.colors[str];
+                    let hash = 0;
+                    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                    let color = '#';
+                    for (let i = 0; i < 3; i++) {
+                        color += ('00' + ((hash >> (i * 8)) & 0xFF).toString(16)).substr(-2);
+                    }
+                    return STATE.colors[str] = color;
+                },
+                isLightColor(hex) {
+                    const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.substring(i, i + 2), 16));
+                    return (r * 299 + g * 587 + b * 114) / 1000 > 180;
+                },
             };
 
             const CONTROLLER = {
                 init() {
                     document.body.addEventListener('click', this.globalClickListener.bind(this));
-                    this.setupInputListeners(); // New call
+                    this.setupInputListeners();
                 },
 
                 globalClickListener(e) {
                     const target = e.target;
+                    const actionTarget = target.closest('[data-action]');
                     
+                    // Обработка кликов по ячейкам календаря
                     const dayCell = target.closest('.day-cell:not(.empty)');
                     if (dayCell) {
-                        const grid = dayCell.closest('.calendar-grid');
-                        SERVICE.handleDayClick(parseInt(dayCell.dataset.day, 10), grid.dataset.calendarType);
+                        SERVICE.handleDayClick(parseInt(dayCell.dataset.day, 10), dayCell.closest('.calendar-grid').dataset.calendarType);
                         return;
                     }
 
+                    // Обработка кликов по кнопкам вкладок
                     const tabButton = target.closest('.tab-button[data-tab]');
                     if (tabButton) {
                         SERVICE.switchTab(tabButton.dataset.tab);
                         return;
                     }
+                    
+                    // Обработка кликов по выпадающим спискам
+                    const dropdownItem = target.closest('.dropdown-item[data-value]');
+                    if (dropdownItem) {
+                        const { type, value } = dropdownItem.dataset;
+                        if (type === 'month') SERVICE.changeMonth(value);
+                        if (type === 'year') SERVICE.changeYear(value);
+                        dropdownItem.closest('.dropdown-list').classList.remove('show');
+                        return;
+                    }
+                    if (target.matches('.dropdown-selected')) {
+                        document.querySelectorAll('.dropdown-list.show').forEach(list => list.classList.remove('show'));
+                        target.nextElementSibling?.classList.toggle('show');
+                        return;
+                    }
+                    if (!target.closest('.custom-dropdown')) {
+                         document.querySelectorAll('.dropdown-list.show').forEach(list => list.classList.remove('show'));
+                    }
 
-                    const actionTarget = target.closest('[data-action]');
+                    // Обработка кликов по кнопкам с data-action
                     if (actionTarget) {
-                        const { action, name, index, personIdToDelete } = actionTarget.dataset;
-                        
+                        const { action, name, index, personIdToDelete, personId } = actionTarget.dataset;
                         switch (action) {
                             case 'toggleEditMode': SERVICE.toggleEditMode(); break;
                             case 'save': SERVICE.saveData(); break;
@@ -2015,7 +1146,6 @@
                             case 'addPerson': SERVICE.addPerson(VIEW.newOfficerNameInput.value, VIEW.newOfficerTelegramIdInput.value); break;
                             case 'deletePerson': SERVICE.deletePerson(personIdToDelete); break;
                             case 'closeModal': VIEW.closeModal(); break;
-                            case 'closeConfirmModal': VIEW.closeConfirmModal(false); break;
                             case 'closeSummaryModal': VIEW.closeSummaryModal(); break;
                             case 'selectDuty': SERVICE.assignDuty(name); break;
                             case 'addAssignment': {
@@ -2034,515 +1164,143 @@
                         }
                     }
                     
-                    if(target.matches('#confirmModalConfirmBtn')) VIEW.closeConfirmModal(true);
-                    if(target.matches('#confirmModalCancelBtn')) VIEW.closeConfirmModal(false);
+                    // Обработка модального окна подтверждения
+                    if (target.closest('#confirmModalConfirmBtn')) VIEW.closeConfirmModal(true);
+                    if (target.closest('#confirmModalCancelBtn') || target.closest('.modal-close[data-action="closeConfirmModal"]')) VIEW.closeConfirmModal(false);
+
+                    // Обработка смены роли
+                    if (target.matches('.role-selector')) {
+                        target.onchange = () => SERVICE.changePersonRole(target.dataset.personId, target.value);
+                    }
                 },
 
-                setupInputListeners() { // New function
-                    const idInput = VIEW.newOfficerTelegramIdInput; // Use VIEW's stored reference
-                    const addBtn = VIEW.addPersonBtn; // Use VIEW's stored reference
-
-                    if (idInput && addBtn) {
-                        idInput.addEventListener('input', () => {
-                            idInput.value = idInput.value.replace(/\D/g, '');
-                            // Disable add button if ID is invalid or user is not admin
-                            if (!/^\d+$/.test(idInput.value) || idInput.value.length < 6 || STATE.userRole !== 'admin') {
-                                idInput.style.borderColor = '#dc2626';
-                                addBtn.disabled = true;
-                            } else {
-                                idInput.style.borderColor = '';
-                                addBtn.disabled = false;
-                            }
+                setupInputListeners() {
+                    if (VIEW.newOfficerTelegramIdInput) {
+                        VIEW.newOfficerTelegramIdInput.addEventListener('input', (e) => {
+                            e.target.value = e.target.value.replace(/\D/g, '');
                         });
-                        // Initial check for button state based on role (even if input is empty)
-                        addBtn.disabled = STATE.userRole === 'admin' ? false : true; // Only admin can add
-                        addBtn.title = STATE.userRole === 'admin' ? "" : "Только администратор может добавлять сотрудников";
                     }
                 },
             };
 
-            document.addEventListener('DOMContentLoaded', () => {
-                SERVICE.init();
-            });
-
-            SERVICE.changeYear = function(newYear) {
-                STATE.year = parseInt(newYear, 10);
-                SERVICE.setupFirestoreListeners();
-                VIEW.renderAll();
-                VIEW.renderMonthSelector();
-            };
+            document.addEventListener('DOMContentLoaded', () => SERVICE.init());
         })();
     </script>
     <style>
-        /* Общие стили */
         :root {
-            --bg-main: #1a1a2e;
-            --bg-container: #0f3460;
-            --bg-element: #2d3748;
-            --bg-element-hover: #4a5568;
-            --bg-accent: #533483;
-            --bg-weekend: #3d2a45;
-            --text-main: #e0e6ed;
-            --text-light: #ffffff;
-            --border-main: #4a5568;
-            --border-accent: #00bfff;
-            --btn-green: #059669;
-            --btn-green-hover: #047857;
-            --btn-red: #dc2626;
-            --btn-red-hover: #b91c1c;
-            --btn-blue: #2563eb;
-            --btn-blue-hover: #1d4ed8;
-            --shadow-main: rgba(0,0,0,0.3);
+            --bg-main: #1a1a2e; --bg-container: #0f3460; --bg-element: #2d3748;
+            --bg-element-hover: #4a5568; --bg-accent: #533483; --bg-weekend: #3d2a45;
+            --text-main: #e0e6ed; --text-light: #ffffff; --border-main: #4a5568;
+            --border-accent: #00bfff; --btn-green: #059669; --btn-green-hover: #047857;
+            --btn-red: #dc2626; --btn-red-hover: #b91c1c; --btn-blue: #2563eb;
+            --btn-blue-hover: #1d4ed8; --shadow-main: rgba(0,0,0,0.3);
             --shadow-accent: rgba(0, 191, 255, 0.5);
-
-            /* Font sizes for responsiveness */
-            --font-size-xs: 8px;
-            --font-size-sm: 10px;
-            --font-size-md: 12px;
-            --font-size-lg: 14px;
-            --font-size-xl: 16px;
-            --font-size-xxl: 20px; /* For day-number on larger screens */
+            --font-size-xs: 8px; --font-size-sm: 10px; --font-size-md: 12px;
+            --font-size-lg: 14px; --font-size-xl: 16px; --font-size-xxl: 20px;
         }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background: var(--bg-main);
-            min-height: 100vh;
-            padding: 10px;
-            color: var(--text-main);
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-        }
-
-        .container {
-            max-width: 1200px;
-            width: 100%;
-            margin: 0 auto;
-            background: var(--bg-container);
-            border-radius: 20px;
-            box-shadow: 0 20px 40px var(--shadow-main);
-            overflow: hidden;
-        }
-        .unauthorized {
-            text-align: center;
-            padding: 50px;
-        }
-
-        /* Заголовок */
-        .header {
-            background: linear-gradient(135deg, var(--bg-accent) 0%, var(--bg-container) 100%);
-            color: var(--text-light);
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            align-items: center;
-            gap: 10px;
-            text-align: center;
-        }
-        .user-info {
-            font-size: 0.9em;
-            opacity: 0.9;
-        }
-        .user-info span {
-            font-weight: bold;
-        }
-
-        .header h1 {
-            font-size: 2em;
-            font-weight: 300;
-        }
-
-        .month-year-selectors {
-            background: rgba(255,255,255,0.04);
-            border-radius: 12px;
-            padding: 4px 8px;
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        }
-        .custom-dropdown {
-            position: relative;
-            min-width: 90px;
-            max-width: 140px;
-            font-size: 15px;
-            user-select: none;
-        }
-        .dropdown-selected {
-            background: var(--bg-element);
-            border: 2px solid var(--border-main);
-            border-radius: 10px;
-            padding: 8px 32px 8px 12px;
-            color: var(--text-light);
-            cursor: pointer;
-            position: relative;
-            transition: border 0.2s;
-            min-width: 90px;
-            max-width: 140px;
-            display: flex;
-            align-items: center;
-        }
-        .dropdown-selected:after {
-            content: '';
-            display: block;
-            position: absolute;
-            right: 12px;
-            top: 50%;
-            width: 16px;
-            height: 16px;
-            pointer-events: none;
-            transform: translateY(-50%);
-            background-image: url('data:image/svg+xml;utf8,<svg fill="%23cccccc" height="16" viewBox="0 0 20 20" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M7.293 7.293a1 1 0 011.414 0L10 8.586l1.293-1.293a1 1 0 111.414 1.414l-2 2a1 1 0 01-1.414 0l-2-2a1 1 0 010-1.414z"/></svg>');
-            background-size: 16px 16px;
-            background-repeat: no-repeat;
-        }
-        .dropdown-list {
-            display: none;
-            position: absolute;
-            left: 0;
-            top: 110%;
-            z-index: 100;
-            background: var(--bg-element);
-            border: 2px solid var(--border-main);
-            border-radius: 10px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
-            min-width: 100%;
-            max-height: 220px;
-            overflow-y: auto;
-            padding: 4px 0;
-        }
-        .dropdown-list.show {
-            display: block;
-            animation: fadeIn 0.15s;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .dropdown-item {
-            padding: 8px 18px 8px 18px;
-            color: var(--text-light);
-            cursor: pointer;
-            font-size: 15px;
-            border: none;
-            background: none;
-            transition: background 0.15s, color 0.15s;
-        }
-        .dropdown-item.selected {
-            background: var(--bg-accent);
-            color: #fff;
-            font-weight: bold;
-        }
-        .dropdown-item:hover {
-            background: var(--bg-weekend);
-            color: #fff;
-        }
-        @media (max-width: 480px) {
-            .custom-dropdown, .dropdown-selected {
-                font-size: var(--font-size-md);
-                min-width: 70px;
-                max-width: 90px;
-            }
-            .dropdown-item {
-                font-size: var(--font-size-md);
-                padding: 7px 10px 7px 10px;
-            }
-        }
-
-        /* Кнопки */
-        .btn {
-            padding: 12px 20px;
-            border: none;
-            border-radius: 12px;
-            font-size: var(--font-size-lg);
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-weight: 500;
-            min-height: 44px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            color: var(--text-light);
-        }
-        .btn:hover:not(:disabled) {
-            transform: translateY(-2px);
-        }
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-        .btn--save { background: var(--btn-green); }
-        .btn--save:hover:not(:disabled) { background: var(--btn-green-hover); }
-        .btn--clear { background: var(--btn-red); }
-        .btn--clear:hover:not(:disabled) { background: var(--btn-red-hover); }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: var(--bg-main); min-height: 100vh; padding: 10px; color: var(--text-main); }
+        .container { max-width: 1200px; width: 100%; margin: 0 auto; background: var(--bg-container); border-radius: 20px; box-shadow: 0 20px 40px var(--shadow-main); overflow: hidden; }
+        .unauthorized { text-align: center; padding: 50px; }
+        .unauthorized h1 { color: var(--btn-red); }
+        .unauthorized p { line-height: 1.6; }
+        .header { background: linear-gradient(135deg, var(--bg-accent) 0%, var(--bg-container) 100%); color: var(--text-light); padding: 15px; text-align: center; }
+        .user-info { font-size: 0.9em; opacity: 0.9; margin-bottom: 10px; }
+        .user-info span { font-weight: bold; }
+        .header h1 { font-size: 1.8em; font-weight: 300; margin-bottom: 15px; }
+        .month-year-selectors { display: flex; justify-content: center; gap: 10px; }
+        .custom-dropdown { position: relative; user-select: none; }
+        .dropdown-selected { background: var(--bg-element); border: 1px solid var(--border-main); border-radius: 10px; padding: 8px 30px 8px 12px; cursor: pointer; position: relative; }
+        .dropdown-selected::after { content: '▼'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 0.8em; }
+        .dropdown-list { display: none; position: absolute; left: 0; top: 110%; z-index: 100; background: var(--bg-element); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); max-height: 220px; overflow-y: auto; padding: 4px 0; min-width: 100%; }
+        .dropdown-list.show { display: block; }
+        .dropdown-item { padding: 8px 12px; cursor: pointer; transition: background 0.2s; }
+        .dropdown-item:hover, .dropdown-item.selected { background: var(--bg-accent); }
+        .btn { padding: 10px 18px; border: none; border-radius: 12px; font-size: var(--font-size-lg); cursor: pointer; transition: all 0.2s; font-weight: 500; box-shadow: 0 2px 5px rgba(0,0,0,0.2); color: var(--text-light); }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn--save { background: var(--btn-green); } .btn--save:hover:not(:disabled) { background: var(--btn-green-hover); }
+        .btn--clear { background: var(--btn-red); } .btn--clear:hover:not(:disabled) { background: var(--btn-red-hover); }
         .btn--cancel { background: var(--bg-element-hover); }
-        .btn--cancel:hover:not(:disabled) { background: var(--bg-element); }
-        .btn--edit-mode, .btn--blue { background: var(--btn-blue); }
-        .btn--edit-mode:hover:not(:disabled), .btn--blue:hover:not(:disabled) { background: var(--btn-blue-hover); }
-        .btn--toggle {
-            background: var(--bg-element);
-            border: 1px solid var(--border-main);
-            box-shadow: none;
-            padding: 8px 15px;
-        }
-        .btn--toggle:hover:not(:disabled) {
-            background: var(--bg-element-hover);
-            transform: none;
-        }
-
-        /* Основное содержимое */
-        .main-content {
-            padding: 20px;
-        }
-
-        .section-container {
-            background: var(--bg-main);
-            border-radius: 15px;
-            padding: 20px;
-            border: 1px solid var(--bg-element);
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-        .section-container h3 {
-            margin-bottom: 15px;
-            font-size: 1.2em;
-        }
-
-        /* Навигация */
-        .tab-navigation {
-            display: flex;
-            justify-content: center;
-            margin-bottom: 20px;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .tab-button {
-            background: var(--bg-element-hover);
-            padding: 10px 20px;
-            border-radius: 10px;
-            min-width: 150px;
-            text-align: center;
-        }
-        .tab-button.active {
-            background: linear-gradient(135deg, var(--bg-accent) 0%, var(--bg-container) 100%);
-            border: 2px solid var(--border-accent);
-            box-shadow: 0 0 15px var(--shadow-accent);
-        }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        
-        /* Сетка календаря */
-        .calendar-grid {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            gap: 2px;
-            background: var(--bg-element);
-            border-radius: 10px;
-            overflow: hidden;
-        }
-        .day-header {
-            background: var(--bg-element-hover);
-            padding: 12px 8px;
-            text-align: center;
-            font-weight: 600;
-            font-size: var(--font-size-md);
-        }
-        .day-cell {
-            background: var(--bg-element);
-            /* Removed min-height here to allow dynamic sizing */
-            padding: 8px 6px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-start;
-            gap: 4px;
-            border: 1px solid var(--border-main);
-            border-radius: 8px;
-        }
-        .day-cell:hover:not(.empty) {
-            background: var(--bg-element-hover);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 10px var(--shadow-main);
-        }
+        .btn--edit-mode, .btn--blue { background: var(--btn-blue); } .btn--edit-mode:hover:not(:disabled), .btn--blue:hover:not(:disabled) { background: var(--btn-blue-hover); }
+        .btn--toggle { width: 100%; margin-top: 10px; background: var(--bg-element); }
+        .main-content { padding: 15px; }
+        .section-container { background: var(--bg-main); border-radius: 15px; padding: 15px; border: 1px solid var(--bg-element); margin-bottom: 15px; }
+        .hidden-section { display: none; }
+        .tab-navigation { display: flex; justify-content: center; margin-bottom: 15px; gap: 10px; flex-wrap: wrap; }
+        .tab-button { background: var(--bg-element-hover); }
+        .tab-button.active { background: var(--bg-accent); box-shadow: 0 0 10px var(--shadow-accent); }
+        .tab-content { display: none; } .tab-content.active { display: block; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+        .day-header { text-align: center; font-weight: 600; padding: 8px 4px; font-size: var(--font-size-md); }
+        .day-cell { background: var(--bg-element); padding: 4px; cursor: pointer; transition: background 0.2s; display: flex; flex-direction: column; gap: 4px; border-radius: 8px; min-height: 80px; }
+        .day-cell:hover:not(.empty) { background: var(--bg-element-hover); }
         .day-cell.weekend { background: var(--bg-weekend); }
-        .day-cell.weekend:hover:not(:disabled) { background: #553c5d; }
-        .day-cell.current-day {
-            border: 2px solid var(--border-accent);
-            box-shadow: 0 0 15px var(--shadow-accent);
-        }
-        .day-cell.selected-for-modal {
-            border: 3px solid var(--border-accent);
-            box-shadow: 0 0 25px rgba(0, 191, 255, 0.9);
-            transform: scale(1.03);
-        }
-        .day-number {
-            font-weight: 700; /* Bolder */
-            font-size: var(--font-size-xxl); /* Larger */
-            color: var(--text-light); /* Brighter color */
-            text-shadow: 0 0 5px rgba(0, 191, 255, 0.2); /* Subtle glow */
-        }
-        .day-entries-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-            justify-content: center;
-            align-items: center; /* Изменено с flex-start на center */
-            flex-grow: 1;
-            overflow: hidden;
-        }
-        .avatar-initials {
-            border-radius: 50%; /* Make it a circle */
-            border: 2px solid rgba(255, 255, 255, 0.3); /* Interesting border */
-            box-shadow: 0 0 8px rgba(0, 191, 255, 0.4); /* Glowing effect */
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            margin: 2px 0;
-            line-height: 1.1;
-            text-align: center;
-            transition: all 0.2s ease-in-out; /* Smooth transitions for size changes */
-            flex-shrink: 0; /* Prevent shrinking */
-        }
-        .avatar-letters {
-            font-weight: bold;
-            line-height: 1;
-        }
-        .avatar-shift {
-            font-weight: 500;
-            opacity: 0.85;
-            margin-top: 2px;
-            line-height: 1;
-        }
-
-        /* Specific avatar sizes based on number of assignments */
-        .avatar-single {
-            width: clamp(35px, 10vw, 60px);
-            height: clamp(35px, 10vw, 60px);
-        }
-        .avatar-single .avatar-letters {
-            font-size: clamp(1em, 2.5vw, 2em);
-        }
-        .avatar-single .avatar-shift {
-            font-size: clamp(0.5em, 1.5vw, 0.8em);
-        }
-
-        .avatar-two {
-            width: clamp(25px, 7vw, 45px);
-            height: clamp(25px, 7vw, 45px);
-        }
-        .avatar-two .avatar-letters {
-            font-size: clamp(0.8em, 1.8vw, 1.4em);
-        }
-        .avatar-two .avatar-shift {
-            font-size: clamp(0.3em, 1vw, 0.6em);
-        }
-
-        .avatar-multiple { /* For 3 or more */
-            width: clamp(18px, 5vw, 36px);
-            height: clamp(18px, 5vw, 36px);
-        }
-        .avatar-multiple .avatar-letters {
-            font-size: clamp(0.6em, 1.2vw, 1em);
-        }
-        .avatar-multiple .avatar-shift {
-            font-size: clamp(0.2em, 0.8vw, 0.5em);
-        }
-        .avatar-empty {
-            width: 100%;
-            height: 100%;
-            background-color: transparent !important;
-            box-shadow: none !important;
-            border: none !important;
-            cursor: default;
-        }
-
-        /* Styles for unauthorized/error messages */
-        .unauthorized {
-            background-color: var(--bg-container);
-            color: var(--text-main);
-            padding: 30px;
-            border-radius: 15px;
-            text-align: center;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-            max-width: 600px;
-            margin: 50px auto;
-        }
-
-        .unauthorized h1 {
-            color: var(--btn-red);
-            font-size: 2.2em;
-            margin-bottom: 20px;
-            font-weight: 600;
-        }
-
-        .unauthorized p {
-            font-size: 1.1em;
-            line-height: 1.6;
-            margin-bottom: 15px;
-        }
-
-        .unauthorized a {
-            color: var(--border-accent);
-            text-decoration: none;
-            font-weight: bold;
-        }
-
-        .unauthorized a:hover {
-            text-decoration: underline;
-        }
-
-        .unauthorized strong {
-            color: var(--text-light);
-        }
+        .day-cell.current-day { border: 2px solid var(--border-accent); }
+        .day-number { font-weight: 700; font-size: var(--font-size-lg); }
+        .day-entries-container { display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; align-items: center; flex-grow: 1; }
+        .avatar-initials { border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: bold; text-align: center; flex-shrink: 0; }
+        .avatar-letters { font-weight: bold; line-height: 1; }
+        .avatar-shift { font-size: 0.8em; opacity: 0.85; }
+        .avatar-single { width: 40px; height: 40px; font-size: 1.2em; }
+        .avatar-two { width: 30px; height: 30px; font-size: 0.9em; }
+        .avatar-multiple { width: 24px; height: 24px; font-size: 0.7em; }
+        .avatar-empty { width: 100%; height: 100%; background: transparent !important; }
+        .stats-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+        .stats-item { display: flex; justify-content: space-between; align-items: center; background: var(--bg-element); padding: 5px; border-radius: 8px; }
+        .stats-name { padding: 5px 8px; border-radius: 6px; }
+        .officer-management-controls { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        .officer-management-controls input { flex-grow: 1; background: var(--bg-element); border: 1px solid var(--border-main); border-radius: 8px; padding: 10px; color: var(--text-light); }
+        .current-officer-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid var(--border-main); }
+        .officer-actions { display: flex; gap: 10px; align-items: center; }
+        .role-selector { background: var(--bg-element); color: var(--text-light); border: 1px solid var(--border-main); border-radius: 6px; padding: 5px; }
+        .delete-officer-btn { background: var(--btn-red); color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; }
+        .action-buttons-wrapper { display: flex; justify-content: center; gap: 10px; margin: 15px 0; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: none; justify-content: center; align-items: center; z-index: 1000; padding: 15px; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: var(--bg-container); border-radius: 15px; padding: 20px; width: 100%; max-width: 500px; box-shadow: 0 5px 20px var(--shadow-main); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .modal-header h4 { font-size: 1.2em; }
+        .modal-close { background: none; border: none; color: var(--text-light); font-size: 1.8em; cursor: pointer; }
+        .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+        .officer-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+        .officer-option.selected { border: 2px solid var(--border-accent); }
+        .assignment-controls { display: flex; gap: 10px; margin-bottom: 15px; }
+        .assignment-controls select { flex-grow: 1; background: var(--bg-element); color: var(--text-light); border-radius: 8px; padding: 10px; }
+        .assignment-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: var(--bg-element); border-radius: 8px; margin-bottom: 5px; }
+        .delete-assignment-btn { background: var(--btn-red); color: white; border-radius: 50%; width: 22px; height: 22px; border: none; cursor: pointer; }
+        .enlarged-day-content p { padding: 8px; border-radius: 8px; margin-bottom: 5px; }
+        .notification { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--bg-element); color: white; padding: 15px 25px; border-radius: 12px; z-index: 2000; opacity: 0; transition: opacity 0.3s, bottom 0.3s; }
+        .notification.show { opacity: 1; bottom: 40px; }
+        .notification.success { background: var(--btn-green); }
+        .notification.error { background: var(--btn-red); }
+        #summaryModalBody pre { white-space: pre-wrap; word-wrap: break-word; font-family: monospace; }
     </style>
 </head>
 <body>
-    <div id="loadingIndicator" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; color: white; font-size: 1.5em; z-index: 9999;">Загрузка...</div>
+    <div id="loadingIndicator" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; color: white; font-size: 1.5em; z-index: 9999;">Загрузка...</div>
     <div class="container" id="appContainer">
-        <!-- App content will be rendered here by JavaScript -->
+        <!-- Содержимое приложения будет отрисовано здесь -->
     </div>
 
-    <!-- MODALS (kept outside the main container for positioning) -->
-    <!-- Universal Modal for Editing -->
+    <!-- Модальные окна -->
     <div class="modal-overlay" id="editModalOverlay">
         <div class="modal" id="editModal">
-            <div class="modal-header">
-                <h4 id="editModalTitle"></h4>
-                <button class="modal-close" data-action="closeModal">&times;</button>
-            </div>
+            <div class="modal-header"><h4 id="editModalTitle"></h4><button class="modal-close" data-action="closeModal">&times;</button></div>
             <div class="modal-body" id="editModalBody"></div>
         </div>
     </div>
     
-    <!-- Enlarged Day View Modal -->
     <div class="modal-overlay" id="viewModalOverlay" data-action="closeModal">
         <div class="modal">
-            <div class="modal-header">
-                <h4 id="viewModalTitle">Просмотр дня</h4>
-                <button class="modal-close" data-action="closeModal">&times;</button>
-            </div>
+            <div class="modal-header"><h4 id="viewModalTitle"></h4><button class="modal-close" data-action="closeModal">&times;</button></div>
             <div class="modal-body enlarged-day-content" id="viewModalBody"></div>
         </div>
     </div>
 
-    <!-- Confirmation Modal -->
     <div class="modal-overlay confirm-modal" id="confirmModalOverlay">
         <div class="modal">
-            <div class="modal-header">
-                <h4>Подтверждение</h4>
-                <button class="modal-close" data-action="closeConfirmModal">&times;</button>
-            </div>
+            <div class="modal-header"><h4>Подтверждение</h4><button class="modal-close" data-action="closeConfirmModal">&times;</button></div>
             <div class="modal-body" id="confirmModalMessage"></div>
             <div class="modal-footer">
                 <button class="btn btn--save" id="confirmModalConfirmBtn">Да</button>
@@ -2551,14 +1309,10 @@
         </div>
     </div>
 
-    <!-- New Summary Modal -->
     <div class="modal-overlay" id="summaryModalOverlay">
         <div class="modal">
-            <div class="modal-header">
-                <h4 id="summaryModalTitle">Сводка за месяц</h4>
-                <button class="modal-close" data-action="closeSummaryModal">&times;</button>
-            </div>
-            <div class="modal-body" id="summaryModalBody" style="max-height: 70vh;"></div>
+            <div class="modal-header"><h4 id="summaryModalTitle"></h4><button class="modal-close" data-action="closeSummaryModal">&times;</button></div>
+            <div class="modal-body" id="summaryModalBody" style="max-height: 70vh; overflow-y: auto;"></div>
         </div>
     </div>
 </body>
