@@ -294,10 +294,10 @@
 
                         console.log("Отправка initData для проверки на прокси:", initData);
 
-                        const res = await fetch("https://telegram-auth-debug.ik2grafik.workers.dev", { // Используем ваш debug URL
+                        const res = await fetch("https://telegram-auth-proxy.ik2grafik.workers.dev", { // Используем ваш debug URL
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ initData: initData }) // Убедимся, что initData передается правильно
+                            body: JSON.stringify({ initData: initData }) // Отправляем полную строку initData
                         });
 
                         const data = await res.json();
@@ -2467,7 +2467,7 @@
                 min-height: 30px !important;
             }
             .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] .avatar-letters { font-size: 0.9em !important; }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] .avatar-shift { font-size: 0.4em !important; }
+            .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] .avatar-shift { font-size: 0.3em !important; }
         }
 
         @media (max-width: 375px) {
@@ -2500,318 +2500,43 @@
             .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] .avatar-letters { font-size: 0.8em !important; }
             .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] .avatar-shift { font-size: 0.3em !important; }
         }
-
-        /* Кнопки действий */
-        .action-buttons-wrapper {
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-            margin-top: 20px;
-            flex-wrap: wrap;
-        }
-        .action-buttons-wrapper.hidden {
-            display: none;
-        }
-
-        /* Секции статистики и управления */
-        .hidden-section { display: none; }
-        .stats-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 10px;
-        }
-        .stats-item {
-            background: var(--bg-element);
-            padding: 12px;
-            border-radius: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .stats-name {
-            font-weight: 500;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: var(--font-size-md);
-        }
-        .stats-count {
-            font-size: var(--font-size-xl);
-            font-weight: 600;
-            background: var(--bg-element-hover);
-            padding: 4px 10px;
-            border-radius: 15px;
-        }
-        .officer-management-controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
-        }
-        .officer-management-controls input[type="text"] {
-            flex-grow: 1;
-            padding: 10px 15px;
-            border-radius: 8px;
-            border: 1px solid var(--border-main);
-            background: var(--bg-element);
+        /* Styles for unauthorized/error messages */
+        .unauthorized {
+            background-color: var(--bg-container);
             color: var(--text-main);
-            min-width: 150px;
-        }
-        .current-officers-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 8px;
-        }
-        .current-officer-item {
-            background: var(--bg-element);
-            padding: 10px 15px;
-            border-radius: 8px;
-            border: 1px solid var(--border-main);
-            display: flex;
-            flex-wrap: wrap; /* Allow wrapping for smaller screens */
-            justify-content: space-between;
-            align-items: center;
-            font-size: var(--font-size-lg);
-            gap: 5px; /* Gap between elements in the item */
-        }
-        .current-officer-item .person-name {
-            font-weight: 500;
-            flex-basis: 100%; /* Take full width on small screens */
-            margin-bottom: 5px;
-        }
-        .current-officer-item .telegram-id {
-            font-size: 0.8em;
-            opacity: 0.7;
-            flex-basis: 100%; /* Take full width on small screens */
-            margin-bottom: 5px;
-        }
-        .current-officer-item .role-selector {
-            padding: 5px 8px;
-            border-radius: 6px;
-            border: 1px solid var(--border-main);
-            background: var(--bg-main);
-            color: var(--text-main);
-            font-size: 0.9em;
-            flex-grow: 1; /* Allow to grow */
-            min-width: 100px; /* Minimum width for selector */
-        }
-        .current-officer-item .delete-officer-btn {
-            background: none;
-            border: none;
-            color: var(--btn-red);
-            font-size: var(--font-size-xxl);
-            cursor: pointer;
-            transition: color 0.2s ease;
-            padding: 5px;
-            border-radius: 50%;
-            width: 44px; height: 44px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .current-officer-item .delete-officer-btn:hover:not(:disabled) {
-            color: var(--btn-red-hover);
-            background: rgba(220, 38, 38, 0.2);
-        }
-
-        /* Модальные окна */
-        .modal-overlay {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.8);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-            opacity: 0;
-            visibility: hidden;
-            transition: all 0.3s ease;
-        }
-        .modal-overlay.show {
-            opacity: 1;
-            visibility: visible;
-        }
-        .modal {
-            background: var(--bg-container);
-            border-radius: 15px;
-            width: 90%;
-            max-width: 450px;
-            border: 1px solid var(--bg-element);
-            box-shadow: 0 10px 20px var(--shadow-main);
-            transform: translateY(-50px);
-            transition: all 0.3s ease;
-        }
-        .modal-overlay.show .modal {
-            transform: translateY(0);
-        }
-        .modal-header {
-            background: linear-gradient(135deg, var(--bg-accent) 0%, var(--bg-container) 100%);
-            padding: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .modal-header h4 { font-size: 1.2em; font-weight: 500; }
-        .modal-close {
-            background: none;
-            border: none;
-            color: var(--text-light);
-            font-size: var(--font-size-xxl);
-            cursor: pointer;
-            border-radius: 50%;
-            width: 44px; height: 44px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .modal-close:hover { background: rgba(255,255,255,0.2); }
-        .modal-body { padding: 20px; max-height: 60vh; overflow-y: auto; }
-        
-        /* Содержимое модальных окон */
-        .officer-list {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-        .officer-option {
-            padding: 15px;
-            border: 2px solid var(--border-main);
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            background: var(--bg-element);
-            text-align: center;
-        }
-        .officer-option:hover {
-            border-color: var(--bg-accent);
-            background: var(--bg-element-hover);
-        }
-        .officer-option.selected {
-            border-color: var(--bg-accent);
-            background: var(--bg-accent);
-            color: var(--text-light);
-        }
-        .assignment-controls {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            border: 1px solid var(--border-main);
-            border-radius: 8px;
-            padding: 10px;
-            background: var(--bg-element);
-            margin-bottom: 15px;
-        }
-        .assignment-controls select, .assignment-controls input {
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid var(--border-accent);
-            background: var(--bg-main);
-            color: var(--text-main);
-        }
-        .assignments-list-container h5 { margin-bottom: 10px; }
-        .assignment-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 10px;
-            background: var(--bg-main);
-            border-radius: 6px;
-            margin-bottom: 5px;
-        }
-        .assignment-item .delete-assignment-btn {
-            background: none; border: none; color: var(--btn-red); font-size: var(--font-size-xl); cursor: pointer;
-        }
-        .confirm-modal .modal-body { text-align: center; font-size: 1.1em; }
-        .confirm-modal .modal-footer { display: flex; justify-content: center; gap: 15px; padding: 20px; }
-
-        /* Уведомления */
-        .notification {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%) translateY(150%);
-            padding: 15px 25px;
-            border-radius: 8px;
-            color: var(--text-light);
-            font-weight: 500;
-            z-index: 2000;
-            transition: transform 0.4s ease-in-out;
-            box-shadow: 0 5px 15px var(--shadow-main);
-        }
-        .notification.show { transform: translateX(-50%) translateY(0); }
-        .notification.success { background: var(--btn-green); }
-        .notification.error { background: var(--btn-red); }
-        .notification.info { background: var(--btn-blue); }
-        
-        /* Увеличенный просмотр дня */
-        .enlarged-day-content {
             padding: 30px;
+            border-radius: 15px;
             text-align: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            max-width: 600px;
+            margin: 50px auto;
         }
-        .enlarged-day-content h2 {
-            font-size: 2.5em;
+
+        .unauthorized h1 {
+            color: var(--btn-red);
+            font-size: 2.2em;
             margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        .unauthorized p {
+            font-size: 1.1em;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .unauthorized a {
             color: var(--border-accent);
-        }
-        .enlarged-day-content p {
-            font-size: 1.2em;
-            margin-bottom: 10px;
-            padding: 8px 12px;
-            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
         }
 
-        /* Адаптивность */
-        @media (max-width: 768px) {
-            body { padding: 5px; }
-            .header h1 { font-size: 1.5em; }
-            .main-content, .section-container { padding: 15px; }
-            .day-cell { min-height: 80px; padding: 6px 4px; }
-            .day-number { font-size: var(--font-size-lg); }
-            .day-entry { font-size: var(--font-size-sm); }
-            .stats-list, .current-officers-list { grid-template-columns: 1fr; }
-            .officer-list { grid-template-columns: 1fr; }
-            .tab-button { flex-grow: 1; }
-            .current-officer-item .person-name,
-            .current-officer-item .telegram-id,
-            .current-officer-item .role-selector {
-                flex-basis: auto; /* Allow items to shrink/grow */
-                width: 100%; /* Take full width */
-            }
-            .current-officer-item .delete-officer-btn {
-                margin-left: auto; /* Push to the right */
-            }
+        .unauthorized a:hover {
+            text-decoration: underline;
         }
 
-        /* Дополнительные стили для очень маленьких экранов */
-        @media (max-width: 480px) {
-            .day-cell {
-                min-height: 70px; /* Further reduced height */
-                padding: 4px 2px; /* Reduced padding */
-            }
-            .day-number {
-                font-size: var(--font-size-md); /* Smaller font for day number */
-            }
-            .day-entry {
-                font-size: var(--font-size-xs); /* Smaller font for entries */
-            }
-            .calendar-grid {
-                gap: 1px; /* Reduced gap */
-            }
-        }
-
-        @media (max-width: 375px) {
-            .day-cell {
-                min-height: 60px; /* Even smaller height for tiny screens */
-                padding: 3px 1px; /* Minimal padding */
-            }
-            .day-number {
-                font-size: var(--font-size-sm); /* Even smaller font for day number */
-            }
-            .day-entry {
-                font-size: 6px; /* Even smaller for entries */
-            }
-            .calendar-grid {
-                gap: 0px; /* No gap */
-            }
+        .unauthorized strong {
+            color: var(--text-light);
         }
     </style>
 </head>
