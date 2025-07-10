@@ -294,10 +294,23 @@
 
                         console.log("Отправка initData для проверки на прокси:", initData);
 
+                        // Парсим initData, чтобы извлечь hash
+                        const params = new URLSearchParams(initData);
+                        const hash = params.get('hash');
+                        const queryId = params.get('query_id');
+                        const user = params.get('user');
+                        const authDate = params.get('auth_date');
+
                         const res = await fetch("https://telegram-auth-proxy.ik2grafik.workers.dev", { // Используем ваш debug URL
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ initData: initData }) // Отправляем полную строку initData
+                            body: JSON.stringify({
+                                queryId: queryId,
+                                initData: user, // Это initData.user из оригинального запроса
+                                signature: hash, // <--- ИСПРАВЛЕНО: Отправляем hash
+                                authDate: authDate,
+                                // botToken: TELEGRAM_TOKEN // Бот-токен не отправляется с клиента
+                            })
                         });
 
                         const data = await res.json();
@@ -1466,7 +1479,7 @@
                         
                         const entriesContainer = cell.querySelector('.day-entries-container');
                         entriesContainer.innerHTML = ''; // Clear existing entries before appending
-                        assignmentsArray.forEach(a => entriesContainer.appendChild(this.createDayEntry(a.person, a.shift, calendarType, assignmentsArray.length)));
+                        entriesContainer.appendChild(this.createDayEntry(assignmentsArray));
                         
                         fragment.appendChild(cell);
                     }
@@ -1483,21 +1496,14 @@
                         const dayAssignments = monthData[changedDay] || [];
                         const assignmentsArray = Array.isArray(dayAssignments) ? dayAssignments : (typeof dayAssignments === 'string' ? [{ person: dayAssignments, shift: '' }] : []);
                         
-                        assignmentsArray.forEach(a => entriesContainer.appendChild(this.createDayEntry(a.person, a.shift, calendarType, assignmentsArray.length)));
+                        entriesContainer.appendChild(this.createDayEntry(assignmentsArray));
                     }
                 }
             };
             
-            VIEW.createDayEntry = function(person, shift, calendarType, numAssignments) {
-                let initials = '';
-                if (person) {
-                    const parts = person.split(' ');
-                    if (parts.length > 1) {
-                        initials = (parts[0][0] || '').toUpperCase() + (parts[1][0] || '').toUpperCase();
-                    } else {
-                        initials = (person[0] || '').toUpperCase();
-                    }
-                }
+            VIEW.createDayEntry = function(assignmentsArray) {
+                const fragment = document.createDocumentFragment();
+
                 function getShiftShort(shift) {
                     if (!shift) return '';
                     const map = {
@@ -1512,40 +1518,50 @@
                     };
                     return map[shift] || shift.slice(0, 2).toUpperCase();
                 }
-                const shortShift = getShiftShort(shift);
-                const entry = document.createElement('div');
-                entry.className = 'avatar-initials avatar-grid'; // Base class
 
-                // Dynamic sizing based on number of assignments
-                let size = '36px'; // Default for >2 assignments
-                let letterFontSize = 'var(--font-size-xl)';
-                let shiftFontSize = 'var(--font-size-sm)';
-
-                if (numAssignments === 1) {
-                    size = '60px';
-                    letterFontSize = '2em'; // Larger for single
-                    shiftFontSize = '0.8em';
-                } else if (numAssignments === 2) {
-                    size = '45px';
-                    letterFontSize = '1.4em'; // Medium for two
-                    shiftFontSize = '0.6em';
+                if (assignmentsArray.length === 0) {
+                    const emptyEntry = document.createElement('div');
+                    emptyEntry.className = 'avatar-initials avatar-empty';
+                    fragment.appendChild(emptyEntry);
+                    return fragment;
                 }
 
-                entry.style.width = size;
-                entry.style.height = size;
-                entry.style.minWidth = size;
-                entry.style.minHeight = size;
+                assignmentsArray.forEach(assignment => {
+                    const person = assignment.person;
+                    const shift = assignment.shift;
+                    let initials = '';
+                    if (person) {
+                        const parts = person.split(' ');
+                        if (parts.length > 1) {
+                            initials = (parts[0][0] || '').toUpperCase() + (parts[1][0] || '').toUpperCase();
+                        } else {
+                            initials = (person[0] || '').toUpperCase();
+                        }
+                    }
+                    const shortShift = getShiftShort(shift);
+                    const entry = document.createElement('div');
+                    
+                    // Apply class based on number of assignments
+                    if (assignmentsArray.length === 1) {
+                        entry.className = 'avatar-initials avatar-single';
+                    } else if (assignmentsArray.length === 2) {
+                        entry.className = 'avatar-initials avatar-two';
+                    } else {
+                        entry.className = 'avatar-initials avatar-multiple';
+                    }
 
-                entry.title = shift ? `${SERVICE.sanitizeInput(person)} (${SERVICE.sanitizeInput(shift)})` : SERVICE.sanitizeInput(person);
-                const personColor = this.getColorFor(person);
-                entry.style.backgroundColor = personColor;
-                entry.style.color = this.isLightColor(personColor) ? '#333' : '#fff';
+                    entry.title = shift ? `${SERVICE.sanitizeInput(person)} (${SERVICE.sanitizeInput(shift)})` : SERVICE.sanitizeInput(person);
+                    const personColor = this.getColorFor(person);
+                    entry.style.backgroundColor = personColor;
+                    entry.style.color = this.isLightColor(personColor) ? '#333' : '#fff';
 
-                entry.innerHTML = `
-                    <span class="avatar-letters" style="font-size: ${letterFontSize};">${SERVICE.sanitizeInput(initials)}</span>
-                    ${shift ? `<span class="avatar-shift" style="font-size: ${shiftFontSize};">${SERVICE.sanitizeInput(shortShift)}</span>` : ''}
-                `;
-                return entry;
+                    entry.innerHTML = `
+                        <span class="avatar-letters">${SERVICE.sanitizeInput(initials)}</span>
+                        ${shift ? `<span class="avatar-shift">${SERVICE.sanitizeInput(shortShift)}</span>` : ''}
+                    `;
+                    fragment.appendChild(entry);
+                });
+                return fragment;
             };
 
             VIEW.renderStatistics = function() {
@@ -2341,7 +2357,7 @@
         }
         .day-cell {
             background: var(--bg-element);
-            min-height: 100px;
+            /* Removed min-height here to allow dynamic sizing */
             padding: 8px 6px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -2383,7 +2399,7 @@
             flex-grow: 1;
             overflow: hidden;
         }
-        .avatar-initials.avatar-grid {
+        .avatar-initials {
             border-radius: 50%; /* Make it a circle */
             border: 2px solid rgba(255, 255, 255, 0.3); /* Interesting border */
             box-shadow: 0 0 8px rgba(0, 191, 255, 0.4); /* Glowing effect */
@@ -2396,6 +2412,7 @@
             line-height: 1.1;
             text-align: center;
             transition: all 0.2s ease-in-out; /* Smooth transitions for size changes */
+            flex-shrink: 0; /* Prevent shrinking */
         }
         .avatar-letters {
             font-weight: bold;
@@ -2407,99 +2424,49 @@
             margin-top: 2px;
             line-height: 1;
         }
-        /* Адаптивность для размеров аватаров */
-        @media (max-width: 768px) {
-            .avatar-initials.avatar-grid {
-                /* Default size for >2 assignments on medium screens */
-                width: 26px;
-                height: 26px;
-                min-width: 26px;
-                min-height: 26px;
-            }
-            .avatar-letters { font-size: var(--font-size-lg); }
-            .avatar-shift { font-size: var(--font-size-xs); }
 
-            /* Sizes for 1 and 2 assignments on medium screens */
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 60px"] { /* Single assignment */
-                width: 45px !important;
-                height: 45px !important;
-                min-width: 45px !important;
-                min-height: 45px !important;
-            }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 60px"] .avatar-letters { font-size: 1.5em !important; }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 60px"] .avatar-shift { font-size: 0.7em !important; }
-
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] { /* Two assignments */
-                width: 36px !important;
-                height: 36px !important;
-                min-width: 36px !important;
-                min-height: 36px !important;
-            }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] .avatar-letters { font-size: 1.1em !important; }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] .avatar-shift { font-size: 0.5em !important; }
+        /* Specific avatar sizes based on number of assignments */
+        .avatar-single {
+            width: clamp(35px, 10vw, 60px);
+            height: clamp(35px, 10vw, 60px);
+        }
+        .avatar-single .avatar-letters {
+            font-size: clamp(1em, 2.5vw, 2em);
+        }
+        .avatar-single .avatar-shift {
+            font-size: clamp(0.5em, 1.5vw, 0.8em);
         }
 
-        @media (max-width: 480px) {
-            .avatar-initials.avatar-grid {
-                /* Default size for >2 assignments on small screens */
-                width: 22px;
-                height: 22px;
-                min-width: 22px;
-                min-height: 22px;
-            }
-            .avatar-letters { font-size: var(--font-size-sm); }
-            .avatar-shift { font-size: var(--font-size-xs); }
-
-            /* Sizes for 1 and 2 assignments on small screens */
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 60px"] { /* Single assignment */
-                width: 40px !important;
-                height: 40px !important;
-                min-width: 40px !important;
-                min-height: 40px !important;
-            }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 60px"] .avatar-letters { font-size: 1.2em !important; }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 60px"] .avatar-shift { font-size: 0.6em !important; }
-
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] { /* Two assignments */
-                width: 30px !important;
-                height: 30px !important;
-                min-width: 30px !important;
-                min-height: 30px !important;
-            }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] .avatar-letters { font-size: 0.9em !important; }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] .avatar-shift { font-size: 0.3em !important; }
+        .avatar-two {
+            width: clamp(25px, 7vw, 45px);
+            height: clamp(25px, 7vw, 45px);
+        }
+        .avatar-two .avatar-letters {
+            font-size: clamp(0.8em, 1.8vw, 1.4em);
+        }
+        .avatar-two .avatar-shift {
+            font-size: clamp(0.3em, 1vw, 0.6em);
         }
 
-        @media (max-width: 375px) {
-            .avatar-initials.avatar-grid {
-                /* Default size for >2 assignments on very small screens */
-                width: 18px;
-                height: 18px;
-                min-width: 18px;
-                min-height: 18px;
-            }
-            .avatar-letters { font-size: var(--font-size-xs); }
-            .avatar-shift { font-size: 6px; } /* Even smaller for tiny screens */
-
-            /* Sizes for 1 and 2 assignments on very small screens */
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 60px"] { /* Single assignment */
-                width: 35px !important;
-                height: 35px !important;
-                min-width: 35px !important;
-                min-height: 35px !important;
-            }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 60px"] .avatar-letters { font-size: 1em !important; }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 60px"] .avatar-shift { font-size: 0.5em !important; }
-
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] { /* Two assignments */
-                width: 25px !important;
-                height: 25px !important;
-                min-width: 25px !important;
-                min-height: 25px !important;
-            }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] .avatar-letters { font-size: 0.8em !important; }
-            .day-entries-container .avatar-initials.avatar-grid[style*="width: 45px"] .avatar-shift { font-size: 0.3em !important; }
+        .avatar-multiple { /* For 3 or more */
+            width: clamp(18px, 5vw, 36px);
+            height: clamp(18px, 5vw, 36px);
         }
+        .avatar-multiple .avatar-letters {
+            font-size: clamp(0.6em, 1.2vw, 1em);
+        }
+        .avatar-multiple .avatar-shift {
+            font-size: clamp(0.2em, 0.8vw, 0.5em);
+        }
+        .avatar-empty {
+            width: 100%;
+            height: 100%;
+            background-color: transparent !important;
+            box-shadow: none !important;
+            border: none !important;
+            cursor: default;
+        }
+
         /* Styles for unauthorized/error messages */
         .unauthorized {
             background-color: var(--bg-container);
