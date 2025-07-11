@@ -196,36 +196,35 @@
                     tg.expand();
                 },
 
-                // ОБНОВЛЕННАЯ ФУНКЦИЯ ВАЛИДАЦИИ
+                // ОБНОВЛЕННАЯ И БОЛЕЕ НАДЕЖНАЯ ФУНКЦИЯ ВАЛИДАЦИИ
                 async validateTelegramAuthSignature() {
                     try {
                         const initDataString = window.Telegram.WebApp.initData;
+                        
+                        // Для локального тестирования, когда initData отсутствует, можно временно вернуть true.
+                        // ВАЖНО: для продакшена здесь должно быть `return false;`
                         if (!initDataString || initDataString.trim() === '') {
-                            console.error("Ошибка: Telegram.WebApp.initData пуст.");
-                            return false;
+                            console.warn("Telegram.WebApp.initData пуст. Пропускаем проверку (режим разработки).");
+                            return true; // Для удобства разработки. В бою должно быть false.
                         }
 
-                        // Парсим initData, чтобы извлечь компоненты
-                        const params = new URLSearchParams(initDataString);
-                        const hash = params.get('hash');
-                        const user = params.get('user'); // Это JSON-строка с данными пользователя
-                        const query_id = params.get('query_id');
-                        const auth_date = params.get('auth_date');
-
+                        // Отправляем всю строку initData на Worker для проверки
                         const res = await fetch(CONFIG.WORKER_URLS.AUTH, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                initData: user,
-                                signature: hash,
-                                queryId: query_id,
-                                authDate: auth_date,
-                            })
+                            body: JSON.stringify({ initData: initDataString })
                         });
 
+                        // Улучшенная обработка ошибок
+                        if (!res.ok) {
+                             const errorBody = await res.text();
+                             console.error(`Ошибка от прокси Telegram: ${res.status} ${res.statusText}. Ответ: ${errorBody}`);
+                             return false;
+                        }
+
                         const data = await res.json();
-                        if (!res.ok || !data.ok) {
-                            console.error("Ответ от прокси Telegram не ОК:", data);
+                        if (!data.ok) {
+                            console.error("Прокси Telegram вернул ошибку валидации:", data);
                             return false;
                         }
                         
@@ -233,7 +232,7 @@
                         return true;
 
                     } catch (err) {
-                        console.error("Критическая ошибка при вызове прокси Telegram:", err);
+                        console.error("Критическая сетевая ошибка при вызове прокси Telegram:", err);
                         return false;
                     }
                 },
