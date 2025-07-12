@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Календарь</title>
-    <script src="[https://telegram.org/js/telegram-web-app.js](https://telegram.org/js/telegram-web-app.js)"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <!-- Firebase SDKs -->
     <script type="module">
-        import { initializeApp } from "[https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js](https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js)";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "[https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js](https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js)";
-        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, getDocs, deleteDoc } from "[https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js](https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js)";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         (function() {
             'use strict';
@@ -50,9 +50,6 @@
                 INITIAL_DATA: {
                     officers: ["Морозов В.А.", "Ребраков Т.В.", "Костырин С.С.", "Бонадыков В.В.", "Бурлаков М.Ю.", "Артемьев А.М.", "Мефед И.С."],
                     technicians: ["Ребраков Т.В.", "Морозов В.А.", "Кузавлев П.С.", "Лебедев А.В.", "Денщиков А.А."],
-                    julyDuties: { "1": "Ребраков Т.В.", "2": "Костырин С.С.", "3": "Морозов В.А.", "4": "Ребраков Т.В.", "6": "Костырин С.С.", "7": "Костырин С.С.", "8": "Ребраков Т.В.", "9": "Морозов В.А.", "10": "Морозов В.А.", "11": "Костырин С.С.", "12": "Ребраков Т.В.", "13": "Морозов В.А.", "14": "Костырин С.С.", "15": "Ребраков Т.В.", "16": "Морозов В.А.", "17": "Ребраков Т.В.", "18": "Ребраков Т.В.", "19": "Костырин С.С.", "20": "Морозов В.А.", "21": "Костырин С.С.", "22": "Ребраков Т.В.", "23": "Морозов В.А.", "24": "Костырин С.С.", "25": "Ребраков Т.В.", "26": "Морозов В.А.", "27": "Костырин С.С.", "28": "Костырин С.С.", "29": "Морозов В.А.", "30": "Костырин С.С.", "31": "Ребраков Т.В." },
-                    technicianDuties: { "1": [{person: "Кузавлев П.С.", shift: "8"}], "2": [{person: "Лебедев А.В.", shift: "8"}], "3": [{person: "Денщиков А.А.", shift: "8"}], },
-                    generalScheduleData: { "1": [{ person: "Ребраков Т.В.", shift: "8" }, { person: "Кузавлев П.С.", shift: "ДС" }], }
                 },
                 FIREBASE_CONFIG: {
                     apiKey: "AIzaSyBrfimxAJC-fN4aThvXH_B4jMWDA4pwysk",
@@ -71,7 +68,7 @@
                 userRole: 'guest', year: new Date().getFullYear(), currentMonth: new Date().getMonth(),
                 activeTab: 'duty', isEditMode: false, hasUnsavedChanges: false,
                 duties: {}, techDuties: {}, generalSchedule: {}, users: {},
-                pendingUsers: {}, // НОВОЕ: для хранения заявок на доступ
+                pendingUsers: {}, 
                 officers: [], technicians: [], colors: {},
                 confirmModalResolve: null, currentSelectedDay: null, unsubscribeListeners: [],
             };
@@ -101,11 +98,12 @@
                             return;
                         }
 
+                        // Оптимизированная проверка пользователя
                         await this.loadAndVerifyUser();
 
                         if (STATE.userRole === 'guest') {
                             VIEW.renderUnauthorized('guest_role');
-                            await this.createAccessRequestIfNeeded(); // НОВЫЙ ШАГ: создать заявку на доступ
+                            await this.createAccessRequestIfNeeded(); 
                             VIEW.hideLoadingIndicator();
                             return;
                         }
@@ -115,7 +113,7 @@
                         requestAnimationFrame(() => {
                             try {
                                 VIEW.initAppElements();
-                                this.setupFirestoreListeners();
+                                this.setupFirestoreListeners(); // Слушатели запускаются после основной отрисовки
                                 CONTROLLER.init();
                                 VIEW.renderAll();
                             } catch (innerError) {
@@ -169,23 +167,20 @@
                     } catch (error) { console.error("Ошибка аутентификации Firebase:", error); }
                 },
 
+                // ОПТИМИЗИРОВАНО: Сначала быстрая проверка одного пользователя, потом загрузка остальных
                 async loadAndVerifyUser() {
                     if (!STATE.db) return;
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     const currentTelegramId = STATE.telegramUser.id.toString();
+                    const userDocRef = doc(usersRef, currentTelegramId);
 
-                    const snapshot = await getDocs(usersRef);
-                    snapshot.forEach(doc => { STATE.users[doc.id] = doc.data(); });
+                    const userDoc = await getDoc(userDocRef);
 
-                    const currentUserData = STATE.users[currentTelegramId];
-
-                    if (currentUserData && currentUserData.active !== false) {
-                        STATE.userRole = currentUserData.role || 'worker';
+                    if (userDoc.exists() && userDoc.data().active !== false) {
+                        STATE.userRole = userDoc.data().role || 'worker';
                     } else {
                         STATE.userRole = 'guest';
                     }
-                    
-                    this.updateStaffLists();
                 },
                 
                 async createAccessRequestIfNeeded() {
@@ -225,6 +220,7 @@
                     STATE.unsubscribeListeners = [];
                     if (!STATE.db) return;
 
+                    // Слушатель на всех пользователей (для админов)
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     STATE.unsubscribeListeners.push(onSnapshot(usersRef, (snapshot) => {
                         STATE.users = {};
@@ -234,6 +230,7 @@
                         VIEW.renderUserInfo();
                     }));
                     
+                    // Слушатель на заявки (для админов)
                     const pendingUsersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.PENDING_USERS_COLLECTION}`);
                     STATE.unsubscribeListeners.push(onSnapshot(pendingUsersRef, (snapshot) => {
                         STATE.pendingUsers = {};
@@ -241,6 +238,7 @@
                         VIEW.renderManagementList();
                     }));
 
+                    // Слушатель на данные месяца
                     const monthDocRef = doc(collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.MONTHS_COLLECTION}`), `${STATE.year}_${STATE.currentMonth}`);
                     STATE.unsubscribeListeners.push(onSnapshot(monthDocRef, (docSnapshot) => {
                         if (docSnapshot.exists()) {
@@ -601,6 +599,7 @@
                     this.renderCalendar('duty'); this.renderCalendar('technician'); this.renderCalendar('general');
                 },
                 
+                // Эффективный рендеринг календаря с использованием DocumentFragment
                 renderCalendar(calendarType) {
                     const grid = this[`${calendarType}CalendarGrid`];
                     if (!grid) return;
@@ -842,15 +841,21 @@
                     }, 3000);
                 },
                 
+                // Эффективная функция генерации цвета с кэшированием (мемоизацией)
                 getColorFor(str) {
                     if(!str) return '#ccc';
+                    // Сначала проверяем кэш
                     if (STATE.colors[str]) return STATE.colors[str];
+                    
+                    // Если в кэше нет, вычисляем цвет
                     let hash = 0;
                     for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
                     let color = '#';
                     for (let i = 0; i < 3; i++) {
                         color += ('00' + ((hash >> (i * 8)) & 0xFF).toString(16)).substr(-2);
                     }
+                    
+                    // Сохраняем в кэш и возвращаем
                     return STATE.colors[str] = color;
                 },
                 isLightColor(hex) {
@@ -865,9 +870,33 @@
                     document.body.addEventListener('click', this.globalClickListener.bind(this));
                 },
 
+                // УПРОЩЕНО: Обработка кликов по выпадающим спискам вынесена
+                handleDropdownClick(target) {
+                    const dropdownItem = target.closest('.dropdown-item[data-value]');
+                    if (dropdownItem) {
+                        const { type, value } = dropdownItem.dataset;
+                        if (type === 'month') SERVICE.changeMonth(value);
+                        if (type === 'year') SERVICE.changeYear(value);
+                        dropdownItem.closest('.dropdown-list').classList.remove('show');
+                        return true; // Клик обработан
+                    }
+                    if (target.matches('.dropdown-selected')) {
+                        document.querySelectorAll('.dropdown-list.show').forEach(list => list.classList.remove('show'));
+                        target.nextElementSibling?.classList.toggle('show');
+                        return true; // Клик обработан
+                    }
+                    if (!target.closest('.custom-dropdown')) {
+                         document.querySelectorAll('.dropdown-list.show').forEach(list => list.classList.remove('show'));
+                    }
+                    return false; // Клик не относился к дропдауну
+                },
+
                 globalClickListener(e) {
                     const target = e.target;
                     const actionTarget = target.closest('[data-action]');
+                    
+                    if (this.handleDropdownClick(target)) return;
+
                     const dayCell = target.closest('.day-cell:not(.empty)');
                     if (dayCell) {
                         SERVICE.handleDayClick(parseInt(dayCell.dataset.day, 10), dayCell.closest('.calendar-grid').dataset.calendarType);
@@ -878,22 +907,7 @@
                         SERVICE.switchTab(tabButton.dataset.tab);
                         return;
                     }
-                    const dropdownItem = target.closest('.dropdown-item[data-value]');
-                    if (dropdownItem) {
-                        const { type, value } = dropdownItem.dataset;
-                        if (type === 'month') SERVICE.changeMonth(value);
-                        if (type === 'year') SERVICE.changeYear(value);
-                        dropdownItem.closest('.dropdown-list').classList.remove('show');
-                        return;
-                    }
-                    if (target.matches('.dropdown-selected')) {
-                        document.querySelectorAll('.dropdown-list.show').forEach(list => list.classList.remove('show'));
-                        target.nextElementSibling?.classList.toggle('show');
-                        return;
-                    }
-                    if (!target.closest('.custom-dropdown')) {
-                         document.querySelectorAll('.dropdown-list.show').forEach(list => list.classList.remove('show'));
-                    }
+                    
                     if (actionTarget) {
                         const { action, name, index, personIdToDelete, userId, userName } = actionTarget.dataset;
                         switch (action) {
