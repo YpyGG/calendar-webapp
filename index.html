@@ -298,7 +298,7 @@
                 },
 
                 async saveData() {
-                    if (STATE.userRole === 'guest') {
+                    if (STATE.userRole !== 'admin' && STATE.userRole !== 'boss') {
                         VIEW.showNotification('У вас нет прав для сохранения данных', 'error');
                         return;
                     }
@@ -387,7 +387,7 @@
                 },
 
                 async toggleEditMode() {
-                    if (STATE.userRole === 'guest') {
+                    if (STATE.userRole !== 'admin' && STATE.userRole !== 'boss') {
                         VIEW.showNotification('У вас нет прав для редактирования.', 'error');
                         return;
                     }
@@ -410,7 +410,9 @@
                 
                 handleDayClick(day, calendarType) {
                     STATE.currentSelectedDay = day;
-                    if (STATE.isEditMode) {
+                    const canEdit = STATE.userRole === 'admin' || STATE.userRole === 'boss';
+                    
+                    if (STATE.isEditMode && canEdit) {
                         if (calendarType === 'duty') VIEW.showDutyModal();
                         else VIEW.showAssignmentModal(calendarType);
                     } else {
@@ -428,6 +430,12 @@
                 },
 
                 async assignDuty(person) {
+                    // Проверка прав доступа
+                    if (STATE.userRole !== 'admin' && STATE.userRole !== 'boss') {
+                        VIEW.showNotification('У вас нет прав для назначения дежурств', 'error');
+                        return;
+                    }
+                    
                     const { currentMonth, currentSelectedDay: day } = STATE;
                     const dayKey = day.toString();
                     if (person === CONFIG.NO_DUTY_LABEL) {
@@ -442,6 +450,12 @@
                 },
 
                 async addAssignment(person, shift, calendarType) {
+                    // Проверка прав доступа
+                    if (STATE.userRole !== 'admin' && STATE.userRole !== 'boss') {
+                        VIEW.showNotification('У вас нет прав для добавления назначений', 'error');
+                        return;
+                    }
+                    
                     // Валидация входных данных
                     if (!VALIDATION.isValidPerson(person)) {
                         VIEW.showNotification('Некорректное имя сотрудника', 'error');
@@ -472,6 +486,12 @@
                 },
 
                 deleteAssignment(index, calendarType) {
+                    // Проверка прав доступа
+                    if (STATE.userRole !== 'admin' && STATE.userRole !== 'boss') {
+                        VIEW.showNotification('У вас нет прав для удаления назначений', 'error');
+                        return;
+                    }
+                    
                     const { currentMonth, currentSelectedDay: day } = STATE;
                     const scheduleKey = calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
                     STATE[scheduleKey][currentMonth][day.toString()].splice(index, 1);
@@ -564,7 +584,7 @@
                 },
                 
                 async clearMonth() {
-                    if (STATE.userRole === 'guest') {
+                    if (STATE.userRole !== 'admin' && STATE.userRole !== 'boss') {
                         VIEW.showNotification('У вас нет прав для очистки данных', 'error');
                         return;
                     }
@@ -707,9 +727,13 @@
                             <button class="tab-button ${STATE.activeTab === 'general' ? 'active' : ''} btn" data-tab="general">Общий</button>`;
                     }
                     document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === `${STATE.activeTab}Tab`));
+                    
+                    // Проверяем права на редактирование
+                    const canEdit = STATE.userRole === 'admin' || STATE.userRole === 'boss';
+                    
                     if (this.actionButtonsWrapper) {
-                        this.actionButtonsWrapper.classList.toggle('hidden', !STATE.isEditMode);
-                        if(STATE.isEditMode) {
+                        this.actionButtonsWrapper.classList.toggle('hidden', !STATE.isEditMode || !canEdit);
+                        if(STATE.isEditMode && canEdit) {
                             this.actionButtonsWrapper.innerHTML = `
                                 <button class="btn btn--save" data-action="save">Сохранить</button>
                                 <button class="btn btn--cancel" data-action="cancel">Отменить</button>
@@ -719,7 +743,7 @@
                     if (this.toggleEditModeBtn) {
                         this.toggleEditModeBtn.textContent = STATE.isEditMode ? 'Завершить' : 'Редактировать';
                         this.toggleEditModeBtn.classList.toggle('active', STATE.isEditMode);
-                        this.toggleEditModeBtn.style.display = (STATE.userRole === 'guest') ? 'none' : 'flex';
+                        this.toggleEditModeBtn.style.display = canEdit ? 'flex' : 'none';
                     }
                 },
 
