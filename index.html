@@ -43,7 +43,7 @@
                     actionButtons: '#actionButtons',
                     tabNavigation: '#tabNavigation',
                 },
-                STORAGE_KEYS: { USERS_COLLECTION: 'users', MONTHS_COLLECTION: 'months' },
+                STORAGE_KEYS: { USERS_COLLECTION: 'users', MONTHS_COLLECTION: 'months', PENDING_USERS_COLLECTION: 'pending_users' },
                 SHIFT_TYPES: ["8", "ДС", "День караул", "Ночь караул", "Отсыпной", "Выходной", "Отпуск", "Больничный"],
                 NO_DUTY_LABEL: "Нет дежурства",
                 NAME_REGEX: /^[А-ЯЁа-яёA-Za-z\- ]{2,}(\s[А-ЯЁA-Za-z]\.[А-ЯЁA-Za-z]\.)?$/,
@@ -63,7 +63,6 @@
                     appId: "1:141207090372:web:b292ee339a23640027c591",
                     measurementId: "G-CSVDH3P8V1"
                 },
-                // УДАЛЕНО: WORKER_URLS, так как прокси больше не нужен
             };
 
             const STATE = {
@@ -72,16 +71,15 @@
                 userRole: 'guest', year: new Date().getFullYear(), currentMonth: new Date().getMonth(),
                 activeTab: 'duty', isEditMode: false, hasUnsavedChanges: false,
                 duties: {}, techDuties: {}, generalSchedule: {}, users: {},
+                pendingUsers: {}, // НОВОЕ: для хранения заявок на доступ
                 officers: [], technicians: [], colors: {},
                 confirmModalResolve: null, currentSelectedDay: null, unsubscribeListeners: [],
             };
 
             const SERVICE = {
-                // НОВЫЙ, УПРОЩЕННЫЙ МЕТОД ИНИЦИАЛИЗАЦИИ
                 async init() {
                     VIEW.showLoadingIndicator();
                     try {
-                        // 1. Инициализация Telegram и получение данных пользователя
                         this.initTelegram();
                         if (!STATE.telegramUser || !STATE.telegramUser.id) {
                              VIEW.renderUnauthorized('no_telegram_user');
@@ -89,7 +87,6 @@
                              return;
                         }
 
-                        // 2. Инициализация Firebase
                         await this.initFirebase();
                         if (!STATE.auth || !STATE.db) {
                             VIEW.renderUnauthorized('firebase_init_failed');
@@ -97,7 +94,6 @@
                             return;
                         }
 
-                        // 3. Аутентификация в Firebase (остается для безопасности сессии)
                         await this.authenticateFirebase();
                         if (!STATE.currentUserId) {
                             VIEW.renderUnauthorized('auth_failed');
@@ -105,25 +101,17 @@
                             return;
                         }
 
-                        // 4. Загрузка пользователей и ОПРЕДЕЛЕНИЕ РОЛИ ПО БЕЛОМУ СПИСКУ
                         await this.loadAndVerifyUser();
 
-                        // 5. Проверка роли (гостям доступ запрещен)
                         if (STATE.userRole === 'guest') {
                             VIEW.renderUnauthorized('guest_role');
-                            // Отправляем уведомление админу о новом пользователе
-                            this.sendAdminNotification(
-                                `Новый пользователь пытается получить доступ: <b>${STATE.telegramUser.first_name}</b> (ID: <code>${STATE.telegramUser.id}</code>). ` +
-                                `Добавьте его в "Управлении персоналом", если это необходимо.`
-                            );
+                            await this.createAccessRequestIfNeeded(); // НОВЫЙ ШАГ: создать заявку на доступ
                             VIEW.hideLoadingIndicator();
                             return;
                         }
 
-                        // 6. Отрисовка основного интерфейса приложения
                         VIEW.renderAppShell();
 
-                        // 7. Инициализация элементов DOM и слушателей после отрисовки
                         requestAnimationFrame(() => {
                             try {
                                 VIEW.initAppElements();
@@ -148,8 +136,7 @@
                 initTelegram() {
                     const tg = window.Telegram.WebApp;
                     tg.ready();
-                    // Для разработки: если нет данных от Telegram, используем тестовые
-                    if (Object.keys(tg.initDataUnsafe).length === 0) {
+                    if (Object.keys(tg.initDataUnsafe).length === 0 || !tg.initDataUnsafe.user) {
                          console.warn("ДАННЫЕ TELEGRAM НЕДОСТУПНЫ. ИСПОЛЬЗУЮТСЯ ТЕСТОВЫЕ ДАННЫЕ АДМИНА.");
                          STATE.telegramUser = { id: parseInt(CONFIG.DEFAULT_ADMIN_ID), first_name: 'Тест Админ', username: 'test_admin' };
                     } else {
@@ -157,8 +144,6 @@
                     }
                     tg.expand();
                 },
-                
-                // УДАЛЕНО: validateTelegramAuthSignature()
 
                 async initFirebase() {
                     try {
@@ -169,9 +154,7 @@
                         const app = initializeApp(firebaseConfig);
                         STATE.db = getFirestore(app);
                         STATE.auth = getAuth(app);
-                    } catch (e) {
-                        console.error("Ошибка инициализации Firebase:", e);
-                    }
+                    } catch (e) { console.error("Ошибка инициализации Firebase:", e); }
                 },
 
                 async authenticateFirebase() {
@@ -183,39 +166,46 @@
                             await signInAnonymously(STATE.auth);
                         }
                         STATE.currentUserId = STATE.auth.currentUser.uid;
-                    } catch (error) {
-                        console.error("Ошибка аутентификации Firebase:", error);
-                    }
+                    } catch (error) { console.error("Ошибка аутентификации Firebase:", error); }
                 },
 
-                // НОВЫЙ МЕТОД: Загружает всех пользователей и проверяет текущего
                 async loadAndVerifyUser() {
                     if (!STATE.db) return;
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     const currentTelegramId = STATE.telegramUser.id.toString();
 
-                    // 1. Загружаем всех пользователей в STATE.users
                     const snapshot = await getDocs(usersRef);
-                    snapshot.forEach(doc => {
-                        STATE.users[doc.id] = doc.data();
-                    });
+                    snapshot.forEach(doc => { STATE.users[doc.id] = doc.data(); });
 
-                    // 2. Проверяем, есть ли текущий пользователь в загруженном списке
                     const currentUserData = STATE.users[currentTelegramId];
 
                     if (currentUserData && currentUserData.active !== false) {
-                        // Пользователь найден и активен, присваиваем ему роль
                         STATE.userRole = currentUserData.role || 'worker';
                     } else {
-                        // Пользователя нет в списке или он неактивен
                         STATE.userRole = 'guest';
                     }
                     
-                    // Обновляем список сотрудников для календарей
                     this.updateStaffLists();
                 },
+                
+                // НОВАЯ ФУНКЦИЯ: Создает заявку на доступ, если ее еще нет
+                async createAccessRequestIfNeeded() {
+                    if (!STATE.db) return;
+                    const { id, first_name, last_name, username } = STATE.telegramUser;
+                    const pendingUsersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.PENDING_USERS_COLLECTION}`);
+                    const userRequestDoc = doc(pendingUsersRef, id.toString());
 
-                // Отдельный метод для обновления списков сотрудников
+                    const docSnap = await getDoc(userRequestDoc);
+                    if (!docSnap.exists()) {
+                        await setDoc(userRequestDoc, {
+                            name: `${first_name || ''} ${last_name || ''}`.trim(),
+                            username: username || '',
+                            requestedAt: new Date()
+                        });
+                        console.log(`Создана заявка на доступ для пользователя ${id}`);
+                    }
+                },
+
                 updateStaffLists() {
                      STATE.officers = Object.values(STATE.users)
                         .filter(u => u.active !== false && CONFIG.INITIAL_DATA.officers.includes(u.name))
@@ -223,13 +213,6 @@
                     STATE.technicians = Object.values(STATE.users)
                         .filter(u => u.active !== false && CONFIG.INITIAL_DATA.technicians.includes(u.name))
                         .map(u => u.name).sort();
-                },
-                
-                // УДАЛЕНО: sendAdminNotification, так как Worker больше не используется для этого.
-                // Если нужна нотификация, ее нужно будет реализовать через другой механизм (например, Firebase Functions)
-                async sendAdminNotification(message) {
-                    console.warn("Уведомление для администратора (требуется настройка Firebase Functions):", message);
-                    // Здесь могла бы быть логика вызова Firebase Function
                 },
 
                 sanitizeInput(input) {
@@ -243,23 +226,23 @@
                     STATE.unsubscribeListeners = [];
                     if (!STATE.db) return;
 
-                    // Слушатель на коллекцию пользователей
                     const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     STATE.unsubscribeListeners.push(onSnapshot(usersRef, (snapshot) => {
-                        snapshot.docChanges().forEach(change => {
-                            if (change.type === "removed") {
-                                delete STATE.users[change.doc.id];
-                            } else {
-                                STATE.users[change.doc.id] = change.doc.data();
-                            }
-                        });
-                        // После любого изменения в пользователях, обновляем списки и интерфейс
+                        STATE.users = {};
+                        snapshot.forEach(doc => { STATE.users[doc.id] = doc.data(); });
                         this.updateStaffLists();
                         VIEW.renderManagementList();
                         VIEW.renderUserInfo();
                     }));
+                    
+                    // НОВЫЙ СЛУШАТЕЛЬ: для заявок на доступ
+                    const pendingUsersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.PENDING_USERS_COLLECTION}`);
+                    STATE.unsubscribeListeners.push(onSnapshot(pendingUsersRef, (snapshot) => {
+                        STATE.pendingUsers = {};
+                        snapshot.forEach(doc => { STATE.pendingUsers[doc.id] = doc.data(); });
+                        VIEW.renderManagementList(); // Перерисовываем весь блок управления
+                    }));
 
-                    // Слушатель на документ текущего месяца
                     const monthDocRef = doc(collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.MONTHS_COLLECTION}`), `${STATE.year}_${STATE.currentMonth}`);
                     STATE.unsubscribeListeners.push(onSnapshot(monthDocRef, (docSnapshot) => {
                         if (docSnapshot.exists()) {
@@ -272,21 +255,16 @@
                             STATE.duties[STATE.currentMonth] = {};
                             STATE.techDuties[STATE.currentMonth] = {};
                             STATE.generalSchedule[STATE.currentMonth] = {};
-                            // Логика для инициализации данных для нового месяца (если нужно)
                         }
                         STATE.hasUnsavedChanges = false;
                         VIEW.renderAll();
                     }));
                 },
 
-                // Остальные методы SERVICE остаются без существенных изменений...
                 async saveData() {
                     if (STATE.userRole === 'guest') return;
-                    if (!STATE.db) return;
-
                     VIEW.showLoadingIndicator();
                     const monthDocRef = doc(collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.MONTHS_COLLECTION}`), `${STATE.year}_${STATE.currentMonth}`);
-                    
                     try {
                         await setDoc(monthDocRef, {
                             duties: STATE.duties[STATE.currentMonth] || {},
@@ -294,7 +272,6 @@
                             generalSchedule: STATE.generalSchedule[STATE.currentMonth] || {},
                             colors: STATE.colors || {}
                         }, { merge: true });
-                        
                         STATE.hasUnsavedChanges = false;
                         VIEW.showNotification('Изменения успешно сохранены!', 'success');
                     } catch (e) {
@@ -307,10 +284,8 @@
 
                 async changeMonth(newMonth) {
                     if (STATE.hasUnsavedChanges) {
-                        const confirmed = await VIEW.showConfirmModal('У вас есть несохраненные изменения. Продолжить без сохранения?');
-                        if (!confirmed) {
-                            VIEW.renderMonthSelector(); // Revert dropdown
-                            return;
+                        if (!await VIEW.showConfirmModal('У вас есть несохраненные изменения. Продолжить без сохранения?')) {
+                            VIEW.renderMonthSelector(); return;
                         }
                     }
                     STATE.currentMonth = parseInt(newMonth, 10);
@@ -319,10 +294,8 @@
 
                 async changeYear(newYear) {
                     if (STATE.hasUnsavedChanges) {
-                         const confirmed = await VIEW.showConfirmModal('У вас есть несохраненные изменения. Продолжить без сохранения?');
-                        if (!confirmed) {
-                            VIEW.renderMonthSelector(); // Revert dropdown
-                            return;
+                        if (!await VIEW.showConfirmModal('У вас есть несохраненные изменения. Продолжить без сохранения?')) {
+                            VIEW.renderMonthSelector(); return;
                         }
                     }
                     STATE.year = parseInt(newYear, 10);
@@ -334,15 +307,14 @@
                         VIEW.showNotification('У вас нет прав для редактирования.', 'error');
                         return;
                     }
-                    
                     if (document.activeElement) document.activeElement.blur();
-
                     if (STATE.isEditMode && STATE.hasUnsavedChanges) {
-                        const confirmed = await VIEW.showConfirmModal('У вас есть несохраненные изменения. Сохранить их перед выходом?');
-                        if (confirmed) await this.saveData();
-                        else this.setupFirestoreListeners();
+                        if (await VIEW.showConfirmModal('У вас есть несохраненные изменения. Сохранить их перед выходом?')) {
+                            await this.saveData();
+                        } else {
+                            this.setupFirestoreListeners();
+                        }
                     }
-                    
                     STATE.isEditMode = !STATE.isEditMode;
                     VIEW.showNotification(STATE.isEditMode ? 'Режим редактирования включен' : 'Режим просмотра', 'info');
                     VIEW.renderAll();
@@ -366,29 +338,21 @@
                 getAllDayAssignments(month, day) {
                     const dayKey = day.toString();
                     const assignments = [];
-                    if (STATE.duties[month]?.[dayKey]) {
-                        assignments.push({ person: STATE.duties[month][dayKey], shift: 'ДС' });
-                    }
-                    if (Array.isArray(STATE.techDuties[month]?.[dayKey])) {
-                        assignments.push(...STATE.techDuties[month][dayKey]);
-                    }
-                    if (Array.isArray(STATE.generalSchedule[month]?.[dayKey])) {
-                        assignments.push(...STATE.generalSchedule[month][dayKey]);
-                    }
+                    if (STATE.duties[month]?.[dayKey]) assignments.push({ person: STATE.duties[month][dayKey], shift: 'ДС' });
+                    if (Array.isArray(STATE.techDuties[month]?.[dayKey])) assignments.push(...STATE.techDuties[month][dayKey]);
+                    if (Array.isArray(STATE.generalSchedule[month]?.[dayKey])) assignments.push(...STATE.generalSchedule[month][dayKey]);
                     return assignments;
                 },
 
                 async assignDuty(person) {
                     const { currentMonth, currentSelectedDay: day } = STATE;
                     const dayKey = day.toString();
-                    
                     if (person === CONFIG.NO_DUTY_LABEL) {
-                        delete STATE.duties[currentMonth][dayKey];
+                        delete STATE.duties[currentMonth]?.[dayKey];
                     } else {
                         if (!STATE.duties[currentMonth]) STATE.duties[currentMonth] = {};
                         STATE.duties[currentMonth][dayKey] = person;
                     }
-                    
                     STATE.hasUnsavedChanges = true;
                     VIEW.closeModal();
                     VIEW.renderAll();
@@ -399,16 +363,12 @@
                     const { currentMonth, currentSelectedDay: day } = STATE;
                     const dayKey = day.toString();
                     const scheduleKey = calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
-                    
                     if (!STATE[scheduleKey][currentMonth]) STATE[scheduleKey][currentMonth] = {};
                     const assignments = STATE[scheduleKey][currentMonth][dayKey] || [];
-                    
                     const filteredAssignments = assignments.filter(a => a.person !== person);
                     filteredAssignments.push({ person, shift });
                     filteredAssignments.sort((a, b) => a.person.localeCompare(b.person));
-                    
                     STATE[scheduleKey][currentMonth][dayKey] = filteredAssignments;
-
                     STATE.hasUnsavedChanges = true;
                     VIEW.renderAssignmentModalList(calendarType);
                     VIEW.renderAll();
@@ -419,7 +379,6 @@
                     const { currentMonth, currentSelectedDay: day } = STATE;
                     const scheduleKey = calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
                     STATE[scheduleKey][currentMonth][day.toString()].splice(index, 1);
-                    
                     STATE.hasUnsavedChanges = true;
                     VIEW.renderAssignmentModalList(calendarType);
                     VIEW.renderAll();
@@ -430,28 +389,50 @@
                     if (STATE.userRole !== 'admin') return;
                     const sanitizedName = SERVICE.sanitizeInput(name);
                     const sanitizedTelegramId = SERVICE.sanitizeInput(telegramId);
-
                     if (!sanitizedName || !CONFIG.NAME_REGEX.test(sanitizedName)) {
-                        VIEW.showNotification("Введите корректное имя (Фамилия И.О.).", 'error');
-                        return;
+                        VIEW.showNotification("Введите корректное имя (Фамилия И.О.).", 'error'); return;
                     }
                     if (!sanitizedTelegramId || !/^\d{6,}$/.test(sanitizedTelegramId)) {
-                        VIEW.showNotification('Telegram ID должен содержать минимум 6 цифр.', 'error');
-                        return;
+                        VIEW.showNotification('Telegram ID должен содержать минимум 6 цифр.', 'error'); return;
                     }
-                    if (Object.values(STATE.users).some(u => u.name === sanitizedName) || STATE.users[sanitizedTelegramId]) {
-                        VIEW.showNotification('Сотрудник с таким именем или ID уже существует.', 'info');
-                        return;
+                    if (STATE.users[sanitizedTelegramId]) {
+                        VIEW.showNotification('Сотрудник с таким ID уже существует.', 'info'); return;
                     }
-
-                    const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     try {
-                        await setDoc(doc(usersRef, sanitizedTelegramId), { name: sanitizedName, role: 'worker', active: true });
+                        await setDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`, sanitizedTelegramId), { name: sanitizedName, role: 'worker', active: true });
                         VIEW.showNotification(`Сотрудник ${sanitizedName} добавлен!`, 'success');
-                        VIEW.newOfficerNameInput.value = '';
-                        VIEW.newOfficerTelegramIdInput.value = '';
+                        VIEW.newOfficerNameInput.value = ''; VIEW.newOfficerTelegramIdInput.value = '';
+                    } catch (e) { VIEW.showNotification("Ошибка добавления сотрудника.", "error"); }
+                },
+                
+                // НОВАЯ ФУНКЦИЯ: Одобрить заявку
+                async approveRequest(userId, userName) {
+                    if (STATE.userRole !== 'admin') return;
+                    try {
+                        // Добавляем в основной список пользователей
+                        await setDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`, userId), {
+                            name: userName,
+                            role: 'worker',
+                            active: true
+                        });
+                        // Удаляем из списка ожидающих
+                        await deleteDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.PENDING_USERS_COLLECTION}`, userId));
+                        VIEW.showNotification(`Пользователь ${userName} одобрен!`, 'success');
                     } catch (e) {
-                        VIEW.showNotification("Ошибка добавления сотрудника.", "error");
+                         console.error("Ошибка одобрения заявки:", e);
+                         VIEW.showNotification("Ошибка одобрения заявки.", "error");
+                    }
+                },
+
+                // НОВАЯ ФУНКЦИЯ: Отклонить заявку
+                async rejectRequest(userId) {
+                    if (STATE.userRole !== 'admin') return;
+                     try {
+                        await deleteDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.PENDING_USERS_COLLECTION}`, userId));
+                        VIEW.showNotification(`Заявка отклонена.`, 'info');
+                    } catch (e) {
+                         console.error("Ошибка отклонения заявки:", e);
+                         VIEW.showNotification("Ошибка отклонения заявки.", "error");
                     }
                 },
 
@@ -459,35 +440,25 @@
                     if (STATE.userRole !== 'admin' || personIdToDelete === STATE.telegramUser.id.toString()) return;
                     const personName = STATE.users[personIdToDelete]?.name;
                     if (!personName) return;
-                    const confirmed = await VIEW.showConfirmModal(`Вы уверены, что хотите деактивировать сотрудника "${personName}"?`);
-                    if (!confirmed) return;
-
-                    const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
+                    if (!await VIEW.showConfirmModal(`Вы уверены, что хотите деактивировать сотрудника "${personName}"?`)) return;
                     try {
-                        await updateDoc(doc(usersRef, personIdToDelete), { active: false });
+                        await updateDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`, personIdToDelete), { active: false });
                         VIEW.showNotification(`Сотрудник "${personName}" деактивирован.`, 'info');
-                    } catch (e) {
-                        VIEW.showNotification("Ошибка деактивации сотрудника.", "error");
-                    }
+                    } catch (e) { VIEW.showNotification("Ошибка деактивации сотрудника.", "error"); }
                 },
 
                 async changePersonRole(personId, newRole) {
                     if (STATE.userRole !== 'admin' || personId === STATE.telegramUser.id.toString()) return;
-                    const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
                     try {
-                        await updateDoc(doc(usersRef, personId), { role: newRole });
+                        await updateDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`, personId), { role: newRole });
                         VIEW.showNotification(`Роль ${STATE.users[personId].name} изменена.`, 'success');
-                    } catch (e) {
-                        VIEW.showNotification("Ошибка изменения роли.", "error");
-                    }
+                    } catch (e) { VIEW.showNotification("Ошибка изменения роли.", "error"); }
                 },
                 
                 async clearMonth() {
                     if (STATE.userRole === 'guest') return;
                     const tabNameMap = { duty: 'графике дежурств', technician: 'графике техников', general: 'общем графике' };
-                    const confirmed = await VIEW.showConfirmModal(`Очистить все данные для текущего месяца в ${tabNameMap[STATE.activeTab]}?`);
-                    if (!confirmed) return;
-
+                    if (!await VIEW.showConfirmModal(`Очистить все данные для текущего месяца в ${tabNameMap[STATE.activeTab]}?`)) return;
                     const keyMap = { duty: 'duties', technician: 'techDuties', general: 'generalSchedule' };
                     if (STATE[keyMap[STATE.activeTab]][STATE.currentMonth]) {
                          STATE[keyMap[STATE.activeTab]][STATE.currentMonth] = {};
@@ -497,16 +468,14 @@
                 },
                 
                 async cancelChanges() {
-                    const confirmed = await VIEW.showConfirmModal('Отменить все несохраненные изменения?');
-                    if(confirmed) {
+                    if (await VIEW.showConfirmModal('Отменить все несохраненные изменения?')) {
                         this.setupFirestoreListeners();
                         VIEW.showNotification('Изменения отменены.', 'info');
                     }
                 },
 
                 async generateMonthSummary() {
-                    // Эта функция может потребовать Worker или Firebase Function для доступа к Gemini
-                    VIEW.showNotification('Генерация сводки временно недоступна в этом режиме.', 'info');
+                    VIEW.showNotification('Генерация сводки временно недоступна.', 'info');
                 },
             };
 
@@ -549,28 +518,21 @@
                             <div class="section-container hidden-section" id="statisticsSection">
                                 <h3>Статистика дежурств</h3>
                                 <div class="stats-list" id="statsList"></div>
-                                <button class="btn btn--blue" style="margin-top: 15px;" data-action="generateMonthSummary">✨ Сгенерировать сводку</button>
                             </div>
                             <button class="btn btn--toggle" data-action="toggleSection" data-target="managementSection" style="margin-top: 10px;">Управление</button>
                             <div class="section-container hidden-section" id="managementSection">
-                                <h3>Управление персоналом</h3>
-                                <div class="officer-management-controls">
-                                    <input type="text" id="newOfficerName" placeholder="Имя (Фамилия И.О.)">
-                                    <input type="text" id="newOfficerTelegramId" placeholder="Telegram ID">
-                                    <button class="btn btn--save" data-action="addPerson" id="addPersonBtn">Добавить</button>
-                                </div>
-                                <div class="current-officers-list" id="currentOfficersList"></div>
+                                <!-- Сюда будет рендериться всё управление -->
+                                <div id="managementContent"></div>
                             </div>
                         </main>`;
                 },
 
                 initAppElements() {
                     const selectors = {
-                        newOfficerNameInput: CONFIG.DOM_SELECTORS.newOfficerName, newOfficerTelegramIdInput: CONFIG.DOM_SELECTORS.newOfficerTelegramId,
                         dutyCalendarGrid: CONFIG.DOM_SELECTORS.dutyCalendarGrid, technicianCalendarGrid: CONFIG.DOM_SELECTORS.technicianCalendarGrid,
                         generalCalendarGrid: CONFIG.DOM_SELECTORS.generalCalendarGrid, statsList: CONFIG.DOM_SELECTORS.statsList,
-                        currentOfficersList: CONFIG.DOM_SELECTORS.currentOfficersList, actionButtonsWrapper: CONFIG.DOM_SELECTORS.actionButtons,
-                        tabNavigation: CONFIG.DOM_SELECTORS.tabNavigation, toggleEditModeBtn: '#toggleEditModeBtn', addPersonBtn: '#addPersonBtn',
+                        actionButtonsWrapper: CONFIG.DOM_SELECTORS.actionButtons, tabNavigation: CONFIG.DOM_SELECTORS.tabNavigation,
+                        toggleEditModeBtn: '#toggleEditModeBtn',
                     };
                     for (const key in selectors) { this[key] = document.querySelector(selectors[key]); }
                 },
@@ -726,10 +688,32 @@
                         }).join('');
                 },
                 
+                // ОБНОВЛЕННАЯ ФУНКЦИЯ: рендерит и заявки, и список пользователей
                 renderManagementList() {
-                    if (!this.currentOfficersList) return;
+                    const container = document.getElementById('managementContent');
+                    if (!container) return;
+
+                    // Рендеринг заявок на доступ
+                    const pendingUsersHTML = Object.entries(STATE.pendingUsers).map(([id, userData]) => `
+                        <div class="pending-item">
+                            <span>${SERVICE.sanitizeInput(userData.name)} (ID: ${id})</span>
+                            <div class="pending-actions">
+                                <button class="btn btn--save btn--small" data-action="approveRequest" data-user-id="${id}" data-user-name="${SERVICE.sanitizeInput(userData.name)}">Одобрить</button>
+                                <button class="btn btn--clear btn--small" data-action="rejectRequest" data-user-id="${id}">Отклонить</button>
+                            </div>
+                        </div>
+                    `).join('');
+
+                    const pendingSection = Object.keys(STATE.pendingUsers).length > 0 ? `
+                        <div class="management-section">
+                            <h4>Заявки на доступ</h4>
+                            <div class="pending-list">${pendingUsersHTML}</div>
+                        </div>
+                    ` : '';
+
+                    // Рендеринг текущих пользователей
                     const allUsers = Object.entries(STATE.users).sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
-                    this.currentOfficersList.innerHTML = allUsers.map(([id, userData]) => {
+                    const currentOfficersHTML = allUsers.map(([id, userData]) => {
                         if (userData.active === false) return '';
                         const isCurrentUser = id === STATE.telegramUser.id.toString();
                         const canEdit = STATE.userRole === 'admin' && !isCurrentUser;
@@ -744,6 +728,29 @@
                                     </div>
                                 </div>`;
                     }).join('');
+                    
+                    const manualAddSection = `
+                        <div class="management-section">
+                             <h4>Добавить вручную</h4>
+                             <div class="officer-management-controls">
+                                <input type="text" id="newOfficerName" placeholder="Имя (Фамилия И.О.)">
+                                <input type="text" id="newOfficerTelegramId" placeholder="Telegram ID">
+                                <button class="btn btn--save" data-action="addPerson" id="addPersonBtn">Добавить</button>
+                            </div>
+                        </div>`;
+
+                    container.innerHTML = `
+                        ${pendingSection}
+                        <div class="management-section">
+                            <h4>Активные пользователи</h4>
+                            <div class="current-officers-list">${currentOfficersHTML}</div>
+                        </div>
+                        ${manualAddSection}
+                    `;
+                    
+                    // Пере-инициализация ссылок на элементы после ререндеринга
+                    VIEW.newOfficerNameInput = document.getElementById('newOfficerName');
+                    VIEW.newOfficerTelegramIdInput = document.getElementById('newOfficerTelegramId');
                 },
 
                 updateManagementSectionVisibility() {
@@ -863,6 +870,7 @@
                     return STATE.colors[str] = color;
                 },
                 isLightColor(hex) {
+                    if (!hex || hex.length < 4) return false;
                     const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.substring(i, i + 2), 16));
                     return (r * 299 + g * 587 + b * 114) / 1000 > 180;
                 },
@@ -871,7 +879,7 @@
             const CONTROLLER = {
                 init() {
                     document.body.addEventListener('click', this.globalClickListener.bind(this));
-                    this.setupInputListeners();
+                    // Убираем вызов setupInputListeners отсюда, так как элементы теперь динамические
                 },
 
                 globalClickListener(e) {
@@ -904,7 +912,7 @@
                          document.querySelectorAll('.dropdown-list.show').forEach(list => list.classList.remove('show'));
                     }
                     if (actionTarget) {
-                        const { action, name, index, personIdToDelete } = actionTarget.dataset;
+                        const { action, name, index, personIdToDelete, userId, userName } = actionTarget.dataset;
                         switch (action) {
                             case 'toggleEditMode': SERVICE.toggleEditMode(); break;
                             case 'save': SERVICE.saveData(); break;
@@ -913,6 +921,8 @@
                             case 'toggleSection': document.getElementById(actionTarget.dataset.target)?.classList.toggle('hidden-section'); break;
                             case 'addPerson': SERVICE.addPerson(VIEW.newOfficerNameInput.value, VIEW.newOfficerTelegramIdInput.value); break;
                             case 'deletePerson': SERVICE.deletePerson(personIdToDelete); break;
+                            case 'approveRequest': SERVICE.approveRequest(userId, userName); break; // НОВОЕ
+                            case 'rejectRequest': SERVICE.rejectRequest(userId); break; // НОВОЕ
                             case 'closeModal': VIEW.closeModal(); break;
                             case 'closeSummaryModal': VIEW.closeSummaryModal(); break;
                             case 'selectDuty': SERVICE.assignDuty(name); break;
@@ -928,7 +938,6 @@
                                  SERVICE.deleteAssignment(parseInt(index, 10), modalBody.dataset.calendarType);
                                  break;
                             }
-                            case 'generateMonthSummary': SERVICE.generateMonthSummary(); break;
                         }
                     }
                     if (target.closest('#confirmModalConfirmBtn')) VIEW.closeConfirmModal(true);
@@ -936,13 +945,9 @@
                     if (target.matches('.role-selector')) {
                         target.onchange = () => SERVICE.changePersonRole(target.dataset.personId, target.value);
                     }
-                },
-
-                setupInputListeners() {
-                    if (VIEW.newOfficerTelegramIdInput) {
-                        VIEW.newOfficerTelegramIdInput.addEventListener('input', (e) => {
-                            e.target.value = e.target.value.replace(/\D/g, '');
-                        });
+                    // Динамическая привязка слушателя для поля ввода ID
+                    if (target.id === 'newOfficerTelegramId') {
+                         target.addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g, ''); });
                     }
                 },
             };
@@ -988,6 +993,7 @@
         .btn--cancel { background: var(--bg-element-hover); }
         .btn--edit-mode, .btn--blue { background: var(--btn-blue); } .btn--edit-mode:hover:not(:disabled), .btn--blue:hover:not(:disabled) { background: var(--btn-blue-hover); }
         .btn--toggle { width: 100%; margin-top: 10px; background: var(--bg-element); }
+        .btn--small { padding: 5px 10px; font-size: 12px; }
         .main-content { padding: 15px; }
         .section-container { background: var(--bg-main); border-radius: 15px; padding: 15px; border: 1px solid var(--bg-element); margin-bottom: 15px; }
         .hidden-section { display: none; }
@@ -1013,10 +1019,12 @@
         .stats-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
         .stats-item { display: flex; justify-content: space-between; align-items: center; background: var(--bg-element); padding: 5px; border-radius: 8px; }
         .stats-name { padding: 5px 8px; border-radius: 6px; }
+        .management-section { margin-bottom: 20px; }
+        .management-section h4 { margin-bottom: 10px; border-bottom: 1px solid var(--border-main); padding-bottom: 5px; }
         .officer-management-controls { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
         .officer-management-controls input { flex-grow: 1; background: var(--bg-element); border: 1px solid var(--border-main); border-radius: 8px; padding: 10px; color: var(--text-light); }
-        .current-officer-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid var(--border-main); }
-        .officer-actions { display: flex; gap: 10px; align-items: center; }
+        .current-officer-item, .pending-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid var(--border-main); }
+        .officer-actions, .pending-actions { display: flex; gap: 10px; align-items: center; }
         .role-selector { background: var(--bg-element); color: var(--text-light); border: 1px solid var(--border-main); border-radius: 6px; padding: 5px; }
         .delete-officer-btn { background: var(--btn-red); color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; }
         .action-buttons-wrapper { display: flex; justify-content: center; gap: 10px; margin: 15px 0; }
