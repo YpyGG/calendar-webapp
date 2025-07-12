@@ -62,6 +62,35 @@
                 },
             };
 
+            // Система валидации данных
+            const VALIDATION = {
+                isValidPerson: (person) => {
+                    return typeof person === 'string' && 
+                           person.trim().length > 0 && 
+                           person.trim().length <= 100 &&
+                           CONFIG.NAME_REGEX.test(person.trim());
+                },
+                isValidShift: (shift) => {
+                    return typeof shift === 'string' && 
+                           CONFIG.SHIFT_TYPES.includes(shift);
+                },
+                isValidCalendarType: (type) => {
+                    return ['duty', 'technician', 'general'].includes(type);
+                },
+                isValidTelegramId: (id) => {
+                    return typeof id === 'string' && 
+                           /^\d{6,}$/.test(id.trim());
+                },
+                isValidMonth: (month) => {
+                    const num = parseInt(month, 10);
+                    return !isNaN(num) && num >= 0 && num <= 11;
+                },
+                isValidYear: (year) => {
+                    const num = parseInt(year, 10);
+                    return !isNaN(num) && num >= 2020 && num <= 2030;
+                }
+            };
+
             const STATE = {
                 appId: typeof __app_id !== 'undefined' ? __app_id : 'default-app-id',
                 db: null, auth: null, telegramUser: null, currentUserId: null,
@@ -174,11 +203,22 @@
                     const currentTelegramId = STATE.telegramUser.id.toString();
                     const userDocRef = doc(usersRef, currentTelegramId);
 
-                    const userDoc = await getDoc(userDocRef);
+                    try {
+                        const userDoc = await getDoc(userDocRef);
 
-                    if (userDoc.exists() && userDoc.data().active !== false) {
-                        STATE.userRole = userDoc.data().role || 'worker';
-                    } else {
+                        if (userDoc.exists() && userDoc.data().active !== false) {
+                            STATE.userRole = userDoc.data().role || 'worker';
+                            console.log('Пользователь найден:', {
+                                telegramId: currentTelegramId,
+                                role: STATE.userRole,
+                                name: userDoc.data().name
+                            });
+                        } else {
+                            STATE.userRole = 'guest';
+                            console.log('Пользователь не найден или деактивирован:', currentTelegramId);
+                        }
+                    } catch (e) {
+                        console.error("Ошибка загрузки пользователя:", e);
                         STATE.userRole = 'guest';
                     }
                 },
@@ -258,30 +298,71 @@
                 },
 
                 async saveData() {
-                    if (STATE.userRole === 'guest') return;
+                    if (STATE.userRole === 'guest') {
+                        VIEW.showNotification('У вас нет прав для сохранения данных', 'error');
+                        return;
+                    }
+                    
                     VIEW.showLoadingIndicator();
                     const monthDocRef = doc(collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.MONTHS_COLLECTION}`), `${STATE.year}_${STATE.currentMonth}`);
+                    
                     try {
+                        console.log('Попытка сохранения данных:', {
+                            userRole: STATE.userRole,
+                            currentUserId: STATE.currentUserId,
+                            year: STATE.year,
+                            month: STATE.currentMonth,
+                            hasUnsavedChanges: STATE.hasUnsavedChanges
+                        });
+                        
                         await setDoc(monthDocRef, {
                             duties: STATE.duties[STATE.currentMonth] || {},
                             techDuties: STATE.techDuties[STATE.currentMonth] || {},
                             generalSchedule: STATE.generalSchedule[STATE.currentMonth] || {},
                             colors: STATE.colors || {}
                         }, { merge: true });
+                        
                         STATE.hasUnsavedChanges = false;
                         VIEW.showNotification('Изменения успешно сохранены!', 'success');
+                        
                     } catch (e) {
                         console.error("Ошибка сохранения данных:", e);
-                        VIEW.showNotification(`Ошибка сохранения данных: ${e.message}`, 'error');
+                        console.error("Детали ошибки:", {
+                            code: e.code,
+                            message: e.message,
+                            userRole: STATE.userRole,
+                            currentUserId: STATE.currentUserId
+                        });
+                        
+                        // Более информативные сообщения об ошибках
+                        let errorMessage = 'Ошибка сохранения данных';
+                        if (e.code === 'permission-denied') {
+                            errorMessage = 'Недостаточно прав для сохранения. Проверьте вашу роль в системе.';
+                        } else if (e.code === 'unavailable') {
+                            errorMessage = 'Сервис временно недоступен. Попробуйте позже.';
+                        } else if (e.code === 'unauthenticated') {
+                            errorMessage = 'Требуется повторная авторизация. Перезагрузите страницу.';
+                        } else if (e.message) {
+                            errorMessage = `Ошибка: ${e.message}`;
+                        }
+                        
+                        VIEW.showNotification(errorMessage, 'error');
                     } finally {
                         VIEW.hideLoadingIndicator();
                     }
                 },
 
                 async changeMonth(newMonth) {
+                    // Валидация месяца
+                    if (!VALIDATION.isValidMonth(newMonth)) {
+                        VIEW.showNotification('Некорректный месяц', 'error');
+                        return;
+                    }
+                    
                     if (STATE.hasUnsavedChanges) {
                         if (!await VIEW.showConfirmModal('У вас есть несохраненные изменения. Продолжить без сохранения?')) {
-                            VIEW.renderMonthSelector(); return;
+                            VIEW.renderMonthSelector(); 
+                            return;
                         }
                     }
                     STATE.currentMonth = parseInt(newMonth, 10);
@@ -289,9 +370,16 @@
                 },
 
                 async changeYear(newYear) {
+                    // Валидация года
+                    if (!VALIDATION.isValidYear(newYear)) {
+                        VIEW.showNotification('Некорректный год', 'error');
+                        return;
+                    }
+                    
                     if (STATE.hasUnsavedChanges) {
                         if (!await VIEW.showConfirmModal('У вас есть несохраненные изменения. Продолжить без сохранения?')) {
-                            VIEW.renderMonthSelector(); return;
+                            VIEW.renderMonthSelector(); 
+                            return;
                         }
                     }
                     STATE.year = parseInt(newYear, 10);
@@ -354,13 +442,27 @@
                 },
 
                 async addAssignment(person, shift, calendarType) {
+                    // Валидация входных данных
+                    if (!VALIDATION.isValidPerson(person)) {
+                        VIEW.showNotification('Некорректное имя сотрудника', 'error');
+                        return;
+                    }
+                    if (!VALIDATION.isValidShift(shift)) {
+                        VIEW.showNotification('Некорректный тип смены', 'error');
+                        return;
+                    }
+                    if (!VALIDATION.isValidCalendarType(calendarType)) {
+                        VIEW.showNotification('Некорректный тип календаря', 'error');
+                        return;
+                    }
+
                     const { currentMonth, currentSelectedDay: day } = STATE;
                     const dayKey = day.toString();
                     const scheduleKey = calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
                     if (!STATE[scheduleKey][currentMonth]) STATE[scheduleKey][currentMonth] = {};
                     const assignments = STATE[scheduleKey][currentMonth][dayKey] || [];
                     const filteredAssignments = assignments.filter(a => a.person !== person);
-                    filteredAssignments.push({ person, shift });
+                    filteredAssignments.push({ person: person.trim(), shift });
                     filteredAssignments.sort((a, b) => a.person.localeCompare(b.person));
                     STATE[scheduleKey][currentMonth][dayKey] = filteredAssignments;
                     STATE.hasUnsavedChanges = true;
@@ -381,22 +483,38 @@
                 
                 async addPerson(name, telegramId) {
                     if (STATE.userRole !== 'admin') return;
-                    const sanitizedName = SERVICE.sanitizeInput(name);
-                    const sanitizedTelegramId = SERVICE.sanitizeInput(telegramId);
-                    if (!sanitizedName || !CONFIG.NAME_REGEX.test(sanitizedName)) {
-                        VIEW.showNotification("Введите корректное имя (Фамилия И.О.).", 'error'); return;
+                    
+                    // Валидация входных данных
+                    if (!VALIDATION.isValidPerson(name)) {
+                        VIEW.showNotification("Введите корректное имя (Фамилия И.О.).", 'error');
+                        return;
                     }
-                    if (!sanitizedTelegramId || !/^\d{6,}$/.test(sanitizedTelegramId)) {
-                        VIEW.showNotification('Telegram ID должен содержать минимум 6 цифр.', 'error'); return;
+                    if (!VALIDATION.isValidTelegramId(telegramId)) {
+                        VIEW.showNotification('Telegram ID должен содержать минимум 6 цифр.', 'error');
+                        return;
                     }
+                    
+                    const sanitizedName = SERVICE.sanitizeInput(name.trim());
+                    const sanitizedTelegramId = telegramId.trim();
+                    
                     if (STATE.users[sanitizedTelegramId]) {
-                        VIEW.showNotification('Сотрудник с таким ID уже существует.', 'info'); return;
+                        VIEW.showNotification('Сотрудник с таким ID уже существует.', 'info');
+                        return;
                     }
+                    
                     try {
-                        await setDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`, sanitizedTelegramId), { name: sanitizedName, role: 'worker', active: true });
+                        await setDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`, sanitizedTelegramId), { 
+                            name: sanitizedName, 
+                            role: 'worker', 
+                            active: true 
+                        });
                         VIEW.showNotification(`Сотрудник ${sanitizedName} добавлен!`, 'success');
-                        VIEW.newOfficerNameInput.value = ''; VIEW.newOfficerTelegramIdInput.value = '';
-                    } catch (e) { VIEW.showNotification("Ошибка добавления сотрудника.", "error"); }
+                        VIEW.newOfficerNameInput.value = '';
+                        VIEW.newOfficerTelegramIdInput.value = '';
+                    } catch (e) { 
+                        console.error("Ошибка добавления сотрудника:", e);
+                        VIEW.showNotification("Ошибка добавления сотрудника.", "error"); 
+                    }
                 },
                 
                 async approveRequest(userId, userName) {
@@ -446,15 +564,25 @@
                 },
                 
                 async clearMonth() {
-                    if (STATE.userRole === 'guest') return;
+                    if (STATE.userRole === 'guest') {
+                        VIEW.showNotification('У вас нет прав для очистки данных', 'error');
+                        return;
+                    }
+                    
                     const tabNameMap = { duty: 'графике дежурств', technician: 'графике техников', general: 'общем графике' };
                     if (!await VIEW.showConfirmModal(`Очистить все данные для текущего месяца в ${tabNameMap[STATE.activeTab]}?`)) return;
-                    const keyMap = { duty: 'duties', technician: 'techDuties', general: 'generalSchedule' };
-                    if (STATE[keyMap[STATE.activeTab]][STATE.currentMonth]) {
-                         STATE[keyMap[STATE.activeTab]][STATE.currentMonth] = {};
+                    
+                    try {
+                        const keyMap = { duty: 'duties', technician: 'techDuties', general: 'generalSchedule' };
+                        if (STATE[keyMap[STATE.activeTab]][STATE.currentMonth]) {
+                             STATE[keyMap[STATE.activeTab]][STATE.currentMonth] = {};
+                        }
+                        await this.saveData();
+                        VIEW.showNotification(`Данные очищены.`, 'info');
+                    } catch (e) {
+                        console.error("Ошибка очистки данных:", e);
+                        VIEW.showNotification('Ошибка при очистке данных', 'error');
                     }
-                    await this.saveData();
-                    VIEW.showNotification(`Данные очищены.`, 'info');
                 },
                 
                 async cancelChanges() {
