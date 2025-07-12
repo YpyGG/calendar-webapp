@@ -71,7 +71,7 @@
                 userRole: 'guest', year: new Date().getFullYear(), currentMonth: new Date().getMonth(),
                 activeTab: 'duty', isEditMode: false, hasUnsavedChanges: false,
                 duties: {}, techDuties: {}, generalSchedule: {}, users: {},
-                pendingUsers: {}, // НОВОЕ: для хранения заявок на доступ
+                pendingUsers: {}, 
                 officers: [], technicians: [], colors: {},
                 confirmModalResolve: null, currentSelectedDay: null, unsubscribeListeners: [],
             };
@@ -105,7 +105,7 @@
 
                         if (STATE.userRole === 'guest') {
                             VIEW.renderUnauthorized('guest_role');
-                            await this.createAccessRequestIfNeeded(); // НОВЫЙ ШАГ: создать заявку на доступ
+                            await this.createAccessRequestIfNeeded(); 
                             VIEW.hideLoadingIndicator();
                             return;
                         }
@@ -188,7 +188,6 @@
                     this.updateStaffLists();
                 },
                 
-                // НОВАЯ ФУНКЦИЯ: Создает заявку на доступ, если ее еще нет
                 async createAccessRequestIfNeeded() {
                     if (!STATE.db) return;
                     const { id, first_name, last_name, username } = STATE.telegramUser;
@@ -235,12 +234,11 @@
                         VIEW.renderUserInfo();
                     }));
                     
-                    // НОВЫЙ СЛУШАТЕЛЬ: для заявок на доступ
                     const pendingUsersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.PENDING_USERS_COLLECTION}`);
                     STATE.unsubscribeListeners.push(onSnapshot(pendingUsersRef, (snapshot) => {
                         STATE.pendingUsers = {};
                         snapshot.forEach(doc => { STATE.pendingUsers[doc.id] = doc.data(); });
-                        VIEW.renderManagementList(); // Перерисовываем весь блок управления
+                        VIEW.renderManagementList(); 
                     }));
 
                     const monthDocRef = doc(collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.MONTHS_COLLECTION}`), `${STATE.year}_${STATE.currentMonth}`);
@@ -316,7 +314,6 @@
                         }
                     }
                     STATE.isEditMode = !STATE.isEditMode;
-                    VIEW.showNotification(STATE.isEditMode ? 'Режим редактирования включен' : 'Режим просмотра', 'info');
                     VIEW.renderAll();
                 },
 
@@ -356,7 +353,6 @@
                     STATE.hasUnsavedChanges = true;
                     VIEW.closeModal();
                     VIEW.renderAll();
-                    VIEW.renderStatistics();
                 },
 
                 async addAssignment(person, shift, calendarType) {
@@ -405,17 +401,14 @@
                     } catch (e) { VIEW.showNotification("Ошибка добавления сотрудника.", "error"); }
                 },
                 
-                // НОВАЯ ФУНКЦИЯ: Одобрить заявку
                 async approveRequest(userId, userName) {
                     if (STATE.userRole !== 'admin') return;
                     try {
-                        // Добавляем в основной список пользователей
                         await setDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`, userId), {
                             name: userName,
                             role: 'worker',
                             active: true
                         });
-                        // Удаляем из списка ожидающих
                         await deleteDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.PENDING_USERS_COLLECTION}`, userId));
                         VIEW.showNotification(`Пользователь ${userName} одобрен!`, 'success');
                     } catch (e) {
@@ -424,7 +417,6 @@
                     }
                 },
 
-                // НОВАЯ ФУНКЦИЯ: Отклонить заявку
                 async rejectRequest(userId) {
                     if (STATE.userRole !== 'admin') return;
                      try {
@@ -473,10 +465,6 @@
                         VIEW.showNotification('Изменения отменены.', 'info');
                     }
                 },
-
-                async generateMonthSummary() {
-                    VIEW.showNotification('Генерация сводки временно недоступна.', 'info');
-                },
             };
 
             const VIEW = {
@@ -521,7 +509,6 @@
                             </div>
                             <button class="btn btn--toggle" data-action="toggleSection" data-target="managementSection" style="margin-top: 10px;">Управление</button>
                             <div class="section-container hidden-section" id="managementSection">
-                                <!-- Сюда будет рендериться всё управление -->
                                 <div id="managementContent"></div>
                             </div>
                         </main>`;
@@ -605,6 +592,7 @@
                     }
                     if (this.toggleEditModeBtn) {
                         this.toggleEditModeBtn.textContent = STATE.isEditMode ? 'Завершить' : 'Редактировать';
+                        this.toggleEditModeBtn.classList.toggle('active', STATE.isEditMode);
                         this.toggleEditModeBtn.style.display = (STATE.userRole === 'guest') ? 'none' : 'flex';
                     }
                 },
@@ -688,12 +676,10 @@
                         }).join('');
                 },
                 
-                // ОБНОВЛЕННАЯ ФУНКЦИЯ: рендерит и заявки, и список пользователей
                 renderManagementList() {
                     const container = document.getElementById('managementContent');
                     if (!container) return;
 
-                    // Рендеринг заявок на доступ
                     const pendingUsersHTML = Object.entries(STATE.pendingUsers).map(([id, userData]) => `
                         <div class="pending-item">
                             <span>${SERVICE.sanitizeInput(userData.name)} (ID: ${id})</span>
@@ -711,7 +697,6 @@
                         </div>
                     ` : '';
 
-                    // Рендеринг текущих пользователей
                     const allUsers = Object.entries(STATE.users).sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
                     const currentOfficersHTML = allUsers.map(([id, userData]) => {
                         if (userData.active === false) return '';
@@ -748,7 +733,6 @@
                         ${manualAddSection}
                     `;
                     
-                    // Пере-инициализация ссылок на элементы после ререндеринга
                     VIEW.newOfficerNameInput = document.getElementById('newOfficerName');
                     VIEW.newOfficerTelegramIdInput = document.getElementById('newOfficerTelegramId');
                 },
@@ -879,7 +863,6 @@
             const CONTROLLER = {
                 init() {
                     document.body.addEventListener('click', this.globalClickListener.bind(this));
-                    // Убираем вызов setupInputListeners отсюда, так как элементы теперь динамические
                 },
 
                 globalClickListener(e) {
@@ -921,8 +904,8 @@
                             case 'toggleSection': document.getElementById(actionTarget.dataset.target)?.classList.toggle('hidden-section'); break;
                             case 'addPerson': SERVICE.addPerson(VIEW.newOfficerNameInput.value, VIEW.newOfficerTelegramIdInput.value); break;
                             case 'deletePerson': SERVICE.deletePerson(personIdToDelete); break;
-                            case 'approveRequest': SERVICE.approveRequest(userId, userName); break; // НОВОЕ
-                            case 'rejectRequest': SERVICE.rejectRequest(userId); break; // НОВОЕ
+                            case 'approveRequest': SERVICE.approveRequest(userId, userName); break; 
+                            case 'rejectRequest': SERVICE.rejectRequest(userId); break; 
                             case 'closeModal': VIEW.closeModal(); break;
                             case 'closeSummaryModal': VIEW.closeSummaryModal(); break;
                             case 'selectDuty': SERVICE.assignDuty(name); break;
@@ -945,7 +928,6 @@
                     if (target.matches('.role-selector')) {
                         target.onchange = () => SERVICE.changePersonRole(target.dataset.personId, target.value);
                     }
-                    // Динамическая привязка слушателя для поля ввода ID
                     if (target.id === 'newOfficerTelegramId') {
                          target.addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g, ''); });
                     }
@@ -985,13 +967,15 @@
         .dropdown-list.show { display: block; }
         .dropdown-item { padding: 8px 12px; cursor: pointer; transition: background 0.2s; }
         .dropdown-item:hover, .dropdown-item.selected { background: var(--bg-accent); }
-        .btn { padding: 10px 18px; border: none; border-radius: 12px; font-size: var(--font-size-lg); cursor: pointer; transition: all 0.2s; font-weight: 500; box-shadow: 0 2px 5px rgba(0,0,0,0.2); color: var(--text-light); }
+        .btn { padding: 10px 18px; border: 1px solid transparent; border-radius: 12px; font-size: var(--font-size-lg); cursor: pointer; transition: all 0.2s; font-weight: 500; box-shadow: 0 2px 5px rgba(0,0,0,0.2); color: var(--text-light); }
         .btn:hover:not(:disabled) { transform: translateY(-1px); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn--save { background: var(--btn-green); } .btn--save:hover:not(:disabled) { background: var(--btn-green-hover); }
         .btn--clear { background: var(--btn-red); } .btn--clear:hover:not(:disabled) { background: var(--btn-red-hover); }
         .btn--cancel { background: var(--bg-element-hover); }
-        .btn--edit-mode, .btn--blue { background: var(--btn-blue); } .btn--edit-mode:hover:not(:disabled), .btn--blue:hover:not(:disabled) { background: var(--btn-blue-hover); }
+        .btn--edit-mode { background: var(--btn-blue); color: var(--text-light); }
+        .btn--edit-mode.active { background: var(--btn-green); border-color: var(--text-light); box-shadow: 0 0 8px var(--btn-green); }
+        .btn--blue { background: var(--btn-blue); } .btn--blue:hover:not(:disabled) { background: var(--btn-blue-hover); }
         .btn--toggle { width: 100%; margin-top: 10px; background: var(--bg-element); }
         .btn--small { padding: 5px 10px; font-size: 12px; }
         .main-content { padding: 15px; }
@@ -1008,13 +992,1106 @@
         .day-cell.weekend { background: var(--bg-weekend); }
         .day-cell.current-day { border: 2px solid var(--border-accent); }
         .day-number { font-weight: 700; font-size: var(--font-size-lg); }
-        .day-entries-container { display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; align-items: center; flex-grow: 1; }
+        .day-entries-container { display: flex; flex-wrap: wrap; gap: 1px; justify-content: center; align-items: center; flex-grow: 1; }
         .avatar-initials { border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: bold; text-align: center; flex-shrink: 0; }
         .avatar-letters { font-weight: bold; line-height: 1; }
         .avatar-shift { font-size: 0.8em; opacity: 0.85; }
-        .avatar-single { width: 40px; height: 40px; font-size: 1.2em; }
-        .avatar-two { width: 30px; height: 30px; font-size: 0.9em; }
-        .avatar-multiple { width: 24px; height: 24px; font-size: 0.7em; }
+        .avatar-single { width: 38px; height: 38px; font-size: 1.1em; }
+        .avatar-two { width: 28px; height: 28px; font-size: 0.8em; }
+        .avatar-multiple { width: 22px; height: 22px; font-size: 10px; }
+        .avatar-empty { width: 100%; height: 100%; background: transparent !important; }
+        .stats-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+        .stats-item { display: flex; justify-content: space-between; align-items: center; background: var(--bg-element); padding: 5px; border-radius: 8px; }
+        .stats-name { padding: 5px 8px; border-radius: 6px; }
+        .management-section { margin-bottom: 20px; }
+        .management-section h4 { margin-bottom: 10px; border-bottom: 1px solid var(--border-main); padding-bottom: 5px; }
+        .officer-management-controls { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        .officer-management-controls input { flex-grow: 1; background: var(--bg-element); border: 1px solid var(--border-main); border-radius: 8px; padding: 10px; color: var(--text-light); }
+        .current-officer-item, .pending-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid var(--border-main); }
+        .officer-actions, .pending-actions { display: flex; gap: 10px; align-items: center; }
+        .role-selector { background: var(--bg-element); color: var(--text-light); border: 1px solid var(--border-main); border-radius: 6px; padding: 5px; }
+        .delete-officer-btn { background: var(--btn-red); color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; }
+        .action-buttons-wrapper { display: flex; justify-content: center; gap: 10px; margin: 15px 0; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: none; justify-content: center; align-items: center; z-index: 1000; padding: 15px; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: var(--bg-container); border-radius: 15px; padding: 20px; width: 100%; max-width: 500px; box-shadow: 0 5px 20px var(--shadow-main); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .modal-header h4 { font-size: 1.2em; }
+        .modal-close { background: none; border: none; color: var(--text-light); font-size: 1.8em; cursor: pointer; }
+        .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+        .officer-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+        .officer-option.selected { border: 2px solid var(--border-accent); }
+        .assignment-controls { display: flex; gap: 10px; margin-bottom: 15px; }
+        .assignment-controls select { flex-grow: 1; background: var(--bg-element); color: var(--text-light); border-radius: 8px; padding: 10px; }
+        .assignment-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: var(--bg-element); border-radius: 8px; margin-bottom: 5px; }
+        .delete-assignment-btn { background: var(--btn-red); color: white; border-radius: 50%; width: 22px; height: 22px; border: none; cursor: pointer; }
+        .enlarged-day-content p { padding: 8px; border-radius: 8px; margin-bottom: 5px; }
+        .notification { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--bg-element); color: white; padding: 15px 25px; border-radius: 12px; z-index: 2000; opacity: 0; transition: opacity 0.3s, bottom 0.3s; }
+        .notification.show { opacity: 1; bottom: 40px; }
+        .notification.success { background: var(--btn-green); }
+        .notification.error { background: var(--btn-red); }
+        #summaryModalBody pre { white-space: pre-wrap; word-wrap: break-word; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <div id="loadingIndicator" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; color: white; font-size: 1.5em; z-index: 9999;">Загрузка...</div>
+    <div class="container" id="appContainer">
+        <!-- Содержимое приложения будет отрисовано здесь -->
+    </div>
+
+    <!-- Модальные окна -->
+    <div class="modal-overlay" id="editModalOverlay">
+        <div class="modal" id="editModal">
+            <div class="modal-header"><h4 id="editModalTitle"></h4><button class="modal-close" data-action="closeModal">&times;</button></div>
+            <div class="modal-body" id="editModalBody"></div>
+        </div>
+    </div>
+    
+    <div class="modal-overlay" id="viewModalOverlay" data-action="closeModal">
+        <div class="modal">
+            <div class="modal-header"><h4 id="viewModalTitle"></h4><button class="modal-close" data-action="closeModal">&times;</button></div>
+            <div class="modal-body enlarged-day-content" id="viewModalBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay confirm-modal" id="confirmModalOverlay">
+        <div class="modal">
+            <div class="modal-header"><h4>Подтверждение</h4><button class="modal-close" data-action="closeConfirmModal">&times;</button></div>
+            <div class="modal-body" id="confirmModalMessage"></div>
+            <div class="modal-footer">
+                <button class="btn btn--save" id="confirmModalConfirmBtn">Да</button>
+                <button class="btn btn--cancel" id="confirmModalCancelBtn">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="summaryModalOverlay">
+        <div class="modal">
+            <div class="modal-header"><h4 id="summaryModalTitle"></h4><button class="modal-close" data-action="closeSummaryModal">&times;</button></div>
+            <div class="modal-body" id="summaryModalBody" style="max-height: 70vh; overflow-y: auto;"></div>
+        </div>
+    </div>
+</body>
+</html>
+" and the user query is "1.Нажимаю редактировать и высплывает окно. Достаточно просто поменять цвет и сделать рамку типо он включён
+2.ПРи добавлении 7 ДС на неделе граница календаря разъезжается и не видно тех кто скраю. Думаю надо кружки сделать немного поменьше чтом вмещалось
+3.При нажаимм на кнопку редактировать некорректный цвет там написано белым по беломк, что неприемлимо!.".
+The user wants to fix three UI issues.
+1.  **Edit button behavior:** Instead of a popup, the user wants the edit button to change its style (color, border) to indicate edit mode is active.
+2.  **Calendar layout:** Avatars in the calendar are too big and break the layout when there are many. They need to be smaller.
+3.  **Edit button color:** The text color on the edit button is wrong when active.
+
+I will address these by:
+1.  Modifying the `SERVICE.toggleEditMode` function to remove any modal-showing logic and just toggle the state.
+2.  Adding a `.active` class to the edit button in `VIEW.renderTabsAndButtons` when `STATE.isEditMode` is true.
+3.  Adding CSS styles for `.btn--edit-mode.active` to change its background and border, ensuring the text color is correct.
+4.  Reducing the size of the avatars in the CSS, specifically `.avatar-multiple`, and adjusting the `gap` in `.day-entries-container` to make them fit better.
+
+I will now proceed with modifying the code in the immersive document.Конечно, я внес все исправления в Canvas.
+
+
+```html
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Календарь</title>
+    <script src="[https://telegram.org/js/telegram-web-app.js](https://telegram.org/js/telegram-web-app.js)"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "[https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js](https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js)";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "[https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js](https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js)";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, getDocs, deleteDoc } from "[https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js](https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js)";
+
+        (function() {
+            'use strict';
+
+            const loadingIndicatorElement = document.getElementById('loadingIndicator');
+            const editModalOverlayElement = document.getElementById('editModalOverlay');
+            const editModalTitleElement = document.getElementById('editModalTitle');
+            const editModalBodyElement = document.getElementById('editModalBody');
+            const viewModalOverlayElement = document.getElementById('viewModalOverlay');
+            const viewModalTitleElement = document.getElementById('viewModalTitle');
+            const viewModalBodyElement = document.getElementById('viewModalBody');
+            const confirmModalOverlayElement = document.getElementById('confirmModalOverlay');
+            const confirmModalMessageElement = document.getElementById('confirmModalMessage');
+            const summaryModalOverlayElement = document.getElementById('summaryModalOverlay');
+            const summaryModalTitleElement = document.getElementById('summaryModalTitle');
+            const summaryModalBodyElement = document.getElementById('summaryModalBody');
+
+            const CONFIG = {
+                DEFAULT_ADMIN_ID: "670669284",
+                DEFAULT_ADMIN_NAME: "Администратор",
+                ROLE_NAMES: { 'admin': 'Администратор', 'boss': 'Начальник', 'worker': 'Работяга', 'guest': 'Гость' },
+                DOM_SELECTORS: {
+                    container: '#appContainer',
+                    newOfficerName: '#newOfficerName',
+                    newOfficerTelegramId: '#newOfficerTelegramId',
+                    dutyCalendarGrid: '#dutyCalendarGrid',
+                    technicianCalendarGrid: '#technicianCalendarGrid',
+                    generalCalendarGrid: '#generalCalendarGrid',
+                    statsList: '#statsList',
+                    currentOfficersList: '#currentOfficersList',
+                    actionButtons: '#actionButtons',
+                    tabNavigation: '#tabNavigation',
+                },
+                STORAGE_KEYS: { USERS_COLLECTION: 'users', MONTHS_COLLECTION: 'months', PENDING_USERS_COLLECTION: 'pending_users' },
+                SHIFT_TYPES: ["8", "ДС", "День караул", "Ночь караул", "Отсыпной", "Выходной", "Отпуск", "Больничный"],
+                NO_DUTY_LABEL: "Нет дежурства",
+                NAME_REGEX: /^[А-ЯЁа-яёA-Za-z\- ]{2,}(\s[А-ЯЁA-Za-z]\.[А-ЯЁA-Za-z]\.)?$/,
+                INITIAL_DATA: {
+                    officers: ["Морозов В.А.", "Ребраков Т.В.", "Костырин С.С.", "Бонадыков В.В.", "Бурлаков М.Ю.", "Артемьев А.М.", "Мефед И.С."],
+                    technicians: ["Ребраков Т.В.", "Морозов В.А.", "Кузавлев П.С.", "Лебедев А.В.", "Денщиков А.А."],
+                    julyDuties: { "1": "Ребраков Т.В.", "2": "Костырин С.С.", "3": "Морозов В.А.", "4": "Ребраков Т.В.", "6": "Костырин С.С.", "7": "Костырин С.С.", "8": "Ребраков Т.В.", "9": "Морозов В.А.", "10": "Морозов В.А.", "11": "Костырин С.С.", "12": "Ребраков Т.В.", "13": "Морозов В.А.", "14": "Костырин С.С.", "15": "Ребраков Т.В.", "16": "Морозов В.А.", "17": "Ребраков Т.В.", "18": "Ребраков Т.В.", "19": "Костырин С.С.", "20": "Морозов В.А.", "21": "Костырин С.С.", "22": "Ребраков Т.В.", "23": "Морозов В.А.", "24": "Костырин С.С.", "25": "Ребраков Т.В.", "26": "Морозов В.А.", "27": "Костырин С.С.", "28": "Костырин С.С.", "29": "Морозов В.А.", "30": "Костырин С.С.", "31": "Ребраков Т.В." },
+                    technicianDuties: { "1": [{person: "Кузавлев П.С.", shift: "8"}], "2": [{person: "Лебедев А.В.", shift: "8"}], "3": [{person: "Денщиков А.А.", shift: "8"}], },
+                    generalScheduleData: { "1": [{ person: "Ребраков Т.В.", shift: "8" }, { person: "Кузавлев П.С.", shift: "ДС" }], }
+                },
+                FIREBASE_CONFIG: {
+                    apiKey: "AIzaSyBrfimxAJC-fN4aThvXH_B4jMWDA4pwysk",
+                    authDomain: "ik2grafik.firebaseapp.com",
+                    projectId: "ik2grafik",
+                    storageBucket: "ik2grafik.firebasestorage.app",
+                    messagingSenderId: "141207090372",
+                    appId: "1:141207090372:web:b292ee339a23640027c591",
+                    measurementId: "G-CSVDH3P8V1"
+                },
+            };
+
+            const STATE = {
+                appId: typeof __app_id !== 'undefined' ? __app_id : 'default-app-id',
+                db: null, auth: null, telegramUser: null, currentUserId: null,
+                userRole: 'guest', year: new Date().getFullYear(), currentMonth: new Date().getMonth(),
+                activeTab: 'duty', isEditMode: false, hasUnsavedChanges: false,
+                duties: {}, techDuties: {}, generalSchedule: {}, users: {},
+                pendingUsers: {}, // НОВОЕ: для хранения заявок на доступ
+                officers: [], technicians: [], colors: {},
+                confirmModalResolve: null, currentSelectedDay: null, unsubscribeListeners: [],
+            };
+
+            const SERVICE = {
+                async init() {
+                    VIEW.showLoadingIndicator();
+                    try {
+                        this.initTelegram();
+                        if (!STATE.telegramUser || !STATE.telegramUser.id) {
+                             VIEW.renderUnauthorized('no_telegram_user');
+                             VIEW.hideLoadingIndicator();
+                             return;
+                        }
+
+                        await this.initFirebase();
+                        if (!STATE.auth || !STATE.db) {
+                            VIEW.renderUnauthorized('firebase_init_failed');
+                            VIEW.hideLoadingIndicator();
+                            return;
+                        }
+
+                        await this.authenticateFirebase();
+                        if (!STATE.currentUserId) {
+                            VIEW.renderUnauthorized('auth_failed');
+                            VIEW.hideLoadingIndicator();
+                            return;
+                        }
+
+                        await this.loadAndVerifyUser();
+
+                        if (STATE.userRole === 'guest') {
+                            VIEW.renderUnauthorized('guest_role');
+                            await this.createAccessRequestIfNeeded(); // НОВЫЙ ШАГ: создать заявку на доступ
+                            VIEW.hideLoadingIndicator();
+                            return;
+                        }
+
+                        VIEW.renderAppShell();
+
+                        requestAnimationFrame(() => {
+                            try {
+                                VIEW.initAppElements();
+                                this.setupFirestoreListeners();
+                                CONTROLLER.init();
+                                VIEW.renderAll();
+                            } catch (innerError) {
+                                console.error("Ошибка во время инициализации после отрисовки:", innerError);
+                                VIEW.renderUnauthorized('unhandled_error');
+                            } finally {
+                                VIEW.hideLoadingIndicator();
+                            }
+                        });
+
+                    } catch (e) {
+                        console.error("Необработанная ошибка во время инициализации приложения:", e);
+                        VIEW.renderUnauthorized('unhandled_error');
+                        VIEW.hideLoadingIndicator();
+                    }
+                },
+
+                initTelegram() {
+                    const tg = window.Telegram.WebApp;
+                    tg.ready();
+                    if (Object.keys(tg.initDataUnsafe).length === 0 || !tg.initDataUnsafe.user) {
+                         console.warn("ДАННЫЕ TELEGRAM НЕДОСТУПНЫ. ИСПОЛЬЗУЮТСЯ ТЕСТОВЫЕ ДАННЫЕ АДМИНА.");
+                         STATE.telegramUser = { id: parseInt(CONFIG.DEFAULT_ADMIN_ID), first_name: 'Тест Админ', username: 'test_admin' };
+                    } else {
+                         STATE.telegramUser = tg.initDataUnsafe.user;
+                    }
+                    tg.expand();
+                },
+
+                async initFirebase() {
+                    try {
+                        let firebaseConfig = CONFIG.FIREBASE_CONFIG;
+                        if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                            firebaseConfig = JSON.parse(__firebase_config);
+                        }
+                        const app = initializeApp(firebaseConfig);
+                        STATE.db = getFirestore(app);
+                        STATE.auth = getAuth(app);
+                    } catch (e) { console.error("Ошибка инициализации Firebase:", e); }
+                },
+
+                async authenticateFirebase() {
+                    if (!STATE.auth) return;
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined') {
+                            await signInWithCustomToken(STATE.auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(STATE.auth);
+                        }
+                        STATE.currentUserId = STATE.auth.currentUser.uid;
+                    } catch (error) { console.error("Ошибка аутентификации Firebase:", error); }
+                },
+
+                async loadAndVerifyUser() {
+                    if (!STATE.db) return;
+                    const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
+                    const currentTelegramId = STATE.telegramUser.id.toString();
+
+                    const snapshot = await getDocs(usersRef);
+                    snapshot.forEach(doc => { STATE.users[doc.id] = doc.data(); });
+
+                    const currentUserData = STATE.users[currentTelegramId];
+
+                    if (currentUserData && currentUserData.active !== false) {
+                        STATE.userRole = currentUserData.role || 'worker';
+                    } else {
+                        STATE.userRole = 'guest';
+                    }
+                    
+                    this.updateStaffLists();
+                },
+                
+                async createAccessRequestIfNeeded() {
+                    if (!STATE.db) return;
+                    const { id, first_name, last_name, username } = STATE.telegramUser;
+                    const pendingUsersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.PENDING_USERS_COLLECTION}`);
+                    const userRequestDoc = doc(pendingUsersRef, id.toString());
+
+                    const docSnap = await getDoc(userRequestDoc);
+                    if (!docSnap.exists()) {
+                        await setDoc(userRequestDoc, {
+                            name: `${first_name || ''} ${last_name || ''}`.trim(),
+                            username: username || '',
+                            requestedAt: new Date()
+                        });
+                        console.log(`Создана заявка на доступ для пользователя ${id}`);
+                    }
+                },
+
+                updateStaffLists() {
+                     STATE.officers = Object.values(STATE.users)
+                        .filter(u => u.active !== false && CONFIG.INITIAL_DATA.officers.includes(u.name))
+                        .map(u => u.name).sort();
+                    STATE.technicians = Object.values(STATE.users)
+                        .filter(u => u.active !== false && CONFIG.INITIAL_DATA.technicians.includes(u.name))
+                        .map(u => u.name).sort();
+                },
+
+                sanitizeInput(input) {
+                    if (typeof input !== 'string') return input;
+                    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#x60;' };
+                    return input.replace(/[&<>"'`]/g, (match) => map[match]);
+                },
+
+                setupFirestoreListeners() {
+                    STATE.unsubscribeListeners.forEach(unsubscribe => unsubscribe());
+                    STATE.unsubscribeListeners = [];
+                    if (!STATE.db) return;
+
+                    const usersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`);
+                    STATE.unsubscribeListeners.push(onSnapshot(usersRef, (snapshot) => {
+                        STATE.users = {};
+                        snapshot.forEach(doc => { STATE.users[doc.id] = doc.data(); });
+                        this.updateStaffLists();
+                        VIEW.renderManagementList();
+                        VIEW.renderUserInfo();
+                    }));
+                    
+                    const pendingUsersRef = collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.PENDING_USERS_COLLECTION}`);
+                    STATE.unsubscribeListeners.push(onSnapshot(pendingUsersRef, (snapshot) => {
+                        STATE.pendingUsers = {};
+                        snapshot.forEach(doc => { STATE.pendingUsers[doc.id] = doc.data(); });
+                        VIEW.renderManagementList();
+                    }));
+
+                    const monthDocRef = doc(collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.MONTHS_COLLECTION}`), `${STATE.year}_${STATE.currentMonth}`);
+                    STATE.unsubscribeListeners.push(onSnapshot(monthDocRef, (docSnapshot) => {
+                        if (docSnapshot.exists()) {
+                            const data = docSnapshot.data();
+                            STATE.duties[STATE.currentMonth] = data.duties || {};
+                            STATE.techDuties[STATE.currentMonth] = data.techDuties || {};
+                            STATE.generalSchedule[STATE.currentMonth] = data.generalSchedule || {};
+                            STATE.colors = data.colors || {};
+                        } else {
+                            STATE.duties[STATE.currentMonth] = {};
+                            STATE.techDuties[STATE.currentMonth] = {};
+                            STATE.generalSchedule[STATE.currentMonth] = {};
+                        }
+                        STATE.hasUnsavedChanges = false;
+                        VIEW.renderAll();
+                    }));
+                },
+
+                async saveData() {
+                    if (STATE.userRole === 'guest') return;
+                    VIEW.showLoadingIndicator();
+                    const monthDocRef = doc(collection(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.MONTHS_COLLECTION}`), `${STATE.year}_${STATE.currentMonth}`);
+                    try {
+                        await setDoc(monthDocRef, {
+                            duties: STATE.duties[STATE.currentMonth] || {},
+                            techDuties: STATE.techDuties[STATE.currentMonth] || {},
+                            generalSchedule: STATE.generalSchedule[STATE.currentMonth] || {},
+                            colors: STATE.colors || {}
+                        }, { merge: true });
+                        STATE.hasUnsavedChanges = false;
+                        VIEW.showNotification('Изменения успешно сохранены!', 'success');
+                    } catch (e) {
+                        console.error("Ошибка сохранения данных:", e);
+                        VIEW.showNotification(`Ошибка сохранения данных: ${e.message}`, 'error');
+                    } finally {
+                        VIEW.hideLoadingIndicator();
+                    }
+                },
+
+                async changeMonth(newMonth) {
+                    if (STATE.hasUnsavedChanges) {
+                        if (!await VIEW.showConfirmModal('У вас есть несохраненные изменения. Продолжить без сохранения?')) {
+                            VIEW.renderMonthSelector(); return;
+                        }
+                    }
+                    STATE.currentMonth = parseInt(newMonth, 10);
+                    this.setupFirestoreListeners();
+                },
+
+                async changeYear(newYear) {
+                    if (STATE.hasUnsavedChanges) {
+                        if (!await VIEW.showConfirmModal('У вас есть несохраненные изменения. Продолжить без сохранения?')) {
+                            VIEW.renderMonthSelector(); return;
+                        }
+                    }
+                    STATE.year = parseInt(newYear, 10);
+                    this.setupFirestoreListeners();
+                },
+
+                async toggleEditMode() {
+                    if (STATE.userRole === 'guest') {
+                        VIEW.showNotification('У вас нет прав для редактирования.', 'error');
+                        return;
+                    }
+                    if (document.activeElement) document.activeElement.blur();
+                    if (STATE.isEditMode && STATE.hasUnsavedChanges) {
+                        if (await VIEW.showConfirmModal('У вас есть несохраненные изменения. Сохранить их перед выходом?')) {
+                            await this.saveData();
+                        } else {
+                            this.setupFirestoreListeners();
+                        }
+                    }
+                    STATE.isEditMode = !STATE.isEditMode;
+                    VIEW.renderAll();
+                },
+
+                switchTab(tabName) {
+                    STATE.activeTab = tabName;
+                    VIEW.renderAll();
+                },
+                
+                handleDayClick(day, calendarType) {
+                    STATE.currentSelectedDay = day;
+                    if (STATE.isEditMode) {
+                        if (calendarType === 'duty') VIEW.showDutyModal();
+                        else VIEW.showAssignmentModal(calendarType);
+                    } else {
+                        VIEW.showEnlargedDayView(day);
+                    }
+                },
+
+                getAllDayAssignments(month, day) {
+                    const dayKey = day.toString();
+                    const assignments = [];
+                    if (STATE.duties[month]?.[dayKey]) assignments.push({ person: STATE.duties[month][dayKey], shift: 'ДС' });
+                    if (Array.isArray(STATE.techDuties[month]?.[dayKey])) assignments.push(...STATE.techDuties[month][dayKey]);
+                    if (Array.isArray(STATE.generalSchedule[month]?.[dayKey])) assignments.push(...STATE.generalSchedule[month][dayKey]);
+                    return assignments;
+                },
+
+                async assignDuty(person) {
+                    const { currentMonth, currentSelectedDay: day } = STATE;
+                    const dayKey = day.toString();
+                    if (person === CONFIG.NO_DUTY_LABEL) {
+                        delete STATE.duties[currentMonth]?.[dayKey];
+                    } else {
+                        if (!STATE.duties[currentMonth]) STATE.duties[currentMonth] = {};
+                        STATE.duties[currentMonth][dayKey] = person;
+                    }
+                    STATE.hasUnsavedChanges = true;
+                    VIEW.closeModal();
+                    VIEW.renderAll();
+                },
+
+                async addAssignment(person, shift, calendarType) {
+                    const { currentMonth, currentSelectedDay: day } = STATE;
+                    const dayKey = day.toString();
+                    const scheduleKey = calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
+                    if (!STATE[scheduleKey][currentMonth]) STATE[scheduleKey][currentMonth] = {};
+                    const assignments = STATE[scheduleKey][currentMonth][dayKey] || [];
+                    const filteredAssignments = assignments.filter(a => a.person !== person);
+                    filteredAssignments.push({ person, shift });
+                    filteredAssignments.sort((a, b) => a.person.localeCompare(b.person));
+                    STATE[scheduleKey][currentMonth][dayKey] = filteredAssignments;
+                    STATE.hasUnsavedChanges = true;
+                    VIEW.renderAssignmentModalList(calendarType);
+                    VIEW.renderAll();
+                    VIEW.showNotification('Назначение добавлено!', 'success');
+                },
+
+                deleteAssignment(index, calendarType) {
+                    const { currentMonth, currentSelectedDay: day } = STATE;
+                    const scheduleKey = calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
+                    STATE[scheduleKey][currentMonth][day.toString()].splice(index, 1);
+                    STATE.hasUnsavedChanges = true;
+                    VIEW.renderAssignmentModalList(calendarType);
+                    VIEW.renderAll();
+                    VIEW.showNotification('Назначение удалено!', 'info');
+                },
+                
+                async addPerson(name, telegramId) {
+                    if (STATE.userRole !== 'admin') return;
+                    const sanitizedName = SERVICE.sanitizeInput(name);
+                    const sanitizedTelegramId = SERVICE.sanitizeInput(telegramId);
+                    if (!sanitizedName || !CONFIG.NAME_REGEX.test(sanitizedName)) {
+                        VIEW.showNotification("Введите корректное имя (Фамилия И.О.).", 'error'); return;
+                    }
+                    if (!sanitizedTelegramId || !/^\d{6,}$/.test(sanitizedTelegramId)) {
+                        VIEW.showNotification('Telegram ID должен содержать минимум 6 цифр.', 'error'); return;
+                    }
+                    if (STATE.users[sanitizedTelegramId]) {
+                        VIEW.showNotification('Сотрудник с таким ID уже существует.', 'info'); return;
+                    }
+                    try {
+                        await setDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`, sanitizedTelegramId), { name: sanitizedName, role: 'worker', active: true });
+                        VIEW.showNotification(`Сотрудник ${sanitizedName} добавлен!`, 'success');
+                        VIEW.newOfficerNameInput.value = ''; VIEW.newOfficerTelegramIdInput.value = '';
+                    } catch (e) { VIEW.showNotification("Ошибка добавления сотрудника.", "error"); }
+                },
+                
+                async approveRequest(userId, userName) {
+                    if (STATE.userRole !== 'admin') return;
+                    try {
+                        await setDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`, userId), {
+                            name: userName,
+                            role: 'worker',
+                            active: true
+                        });
+                        await deleteDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.PENDING_USERS_COLLECTION}`, userId));
+                        VIEW.showNotification(`Пользователь ${userName} одобрен!`, 'success');
+                    } catch (e) {
+                         console.error("Ошибка одобрения заявки:", e);
+                         VIEW.showNotification("Ошибка одобрения заявки.", "error");
+                    }
+                },
+
+                async rejectRequest(userId) {
+                    if (STATE.userRole !== 'admin') return;
+                     try {
+                        await deleteDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.PENDING_USERS_COLLECTION}`, userId));
+                        VIEW.showNotification(`Заявка отклонена.`, 'info');
+                    } catch (e) {
+                         console.error("Ошибка отклонения заявки:", e);
+                         VIEW.showNotification("Ошибка отклонения заявки.", "error");
+                    }
+                },
+
+                async deletePerson(personIdToDelete) {
+                    if (STATE.userRole !== 'admin' || personIdToDelete === STATE.telegramUser.id.toString()) return;
+                    const personName = STATE.users[personIdToDelete]?.name;
+                    if (!personName) return;
+                    if (!await VIEW.showConfirmModal(`Вы уверены, что хотите деактивировать сотрудника "${personName}"?`)) return;
+                    try {
+                        await updateDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`, personIdToDelete), { active: false });
+                        VIEW.showNotification(`Сотрудник "${personName}" деактивирован.`, 'info');
+                    } catch (e) { VIEW.showNotification("Ошибка деактивации сотрудника.", "error"); }
+                },
+
+                async changePersonRole(personId, newRole) {
+                    if (STATE.userRole !== 'admin' || personId === STATE.telegramUser.id.toString()) return;
+                    try {
+                        await updateDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`, personId), { role: newRole });
+                        VIEW.showNotification(`Роль ${STATE.users[personId].name} изменена.`, 'success');
+                    } catch (e) { VIEW.showNotification("Ошибка изменения роли.", "error"); }
+                },
+                
+                async clearMonth() {
+                    if (STATE.userRole === 'guest') return;
+                    const tabNameMap = { duty: 'графике дежурств', technician: 'графике техников', general: 'общем графике' };
+                    if (!await VIEW.showConfirmModal(`Очистить все данные для текущего месяца в ${tabNameMap[STATE.activeTab]}?`)) return;
+                    const keyMap = { duty: 'duties', technician: 'techDuties', general: 'generalSchedule' };
+                    if (STATE[keyMap[STATE.activeTab]][STATE.currentMonth]) {
+                         STATE[keyMap[STATE.activeTab]][STATE.currentMonth] = {};
+                    }
+                    await this.saveData();
+                    VIEW.showNotification(`Данные очищены.`, 'info');
+                },
+                
+                async cancelChanges() {
+                    if (await VIEW.showConfirmModal('Отменить все несохраненные изменения?')) {
+                        this.setupFirestoreListeners();
+                        VIEW.showNotification('Изменения отменены.', 'info');
+                    }
+                },
+            };
+
+            const VIEW = {
+                loadingIndicator: loadingIndicatorElement, editModalOverlay: editModalOverlayElement,
+                editModalTitle: editModalTitleElement, editModalBody: editModalBodyElement,
+                viewModalOverlay: viewModalOverlayElement, viewModalTitle: viewModalTitleElement,
+                viewModalBody: viewModalBodyElement, confirmModalOverlay: confirmModalOverlayElement,
+                confirmModalMessage: confirmModalMessageElement, summaryModalOverlay: summaryModalOverlayElement,
+                summaryModalTitle: summaryModalTitleElement, summaryModalBody: summaryModalBodyElement,
+                newOfficerNameInput: null, newOfficerTelegramIdInput: null, dutyCalendarGrid: null,
+                technicianCalendarGrid: null, generalCalendarGrid: null, statsList: null,
+                currentOfficersList: null, actionButtonsWrapper: null, tabNavigation: null,
+                toggleEditModeBtn: null, addPersonBtn: null,
+            
+                renderAppShell() {
+                    const container = document.querySelector(CONFIG.DOM_SELECTORS.container);
+                    if (!container) return;
+                    container.innerHTML = `
+                        <header class="header">
+                            <div class="user-info" id="userInfo"></div>
+                            <h1>Календарь дежурств</h1>
+                            <div class="month-year-selectors">
+                                <div class="custom-dropdown" id="monthDropdown"></div>
+                                <div class="custom-dropdown" id="yearDropdown"></div>
+                            </div>
+                        </header>
+                        <main class="main-content">
+                            <nav class="tab-navigation" id="tabNavigation"></nav>
+                            <div class="section-container">
+                                <div id="dutyTab" class="tab-content active"><div class="calendar-grid" id="dutyCalendarGrid" data-calendar-type="duty"></div></div>
+                                <div id="technicianTab" class="tab-content"><div class="calendar-grid" id="technicianCalendarGrid" data-calendar-type="technician"></div></div>
+                                <div id="generalTab" class="tab-content"><div class="calendar-grid" id="generalCalendarGrid" data-calendar-type="general"></div></div>
+                            </div>
+                            <div id="editModeBtnWrapper" style="display:flex;justify-content:center;margin:18px 0 0 0;">
+                                <button class="btn btn--edit-mode" id="toggleEditModeBtn" data-action="toggleEditMode">Редактировать</button>
+                            </div>
+                            <div class="action-buttons-wrapper hidden" id="actionButtons"></div>
+                            <button class="btn btn--toggle" data-action="toggleSection" data-target="statisticsSection">Статистика</button>
+                            <div class="section-container hidden-section" id="statisticsSection">
+                                <h3>Статистика дежурств</h3>
+                                <div class="stats-list" id="statsList"></div>
+                            </div>
+                            <button class="btn btn--toggle" data-action="toggleSection" data-target="managementSection" style="margin-top: 10px;">Управление</button>
+                            <div class="section-container hidden-section" id="managementSection">
+                                <div id="managementContent"></div>
+                            </div>
+                        </main>`;
+                },
+
+                initAppElements() {
+                    const selectors = {
+                        dutyCalendarGrid: CONFIG.DOM_SELECTORS.dutyCalendarGrid, technicianCalendarGrid: CONFIG.DOM_SELECTORS.technicianCalendarGrid,
+                        generalCalendarGrid: CONFIG.DOM_SELECTORS.generalCalendarGrid, statsList: CONFIG.DOM_SELECTORS.statsList,
+                        actionButtonsWrapper: CONFIG.DOM_SELECTORS.actionButtons, tabNavigation: CONFIG.DOM_SELECTORS.tabNavigation,
+                        toggleEditModeBtn: '#toggleEditModeBtn',
+                    };
+                    for (const key in selectors) { this[key] = document.querySelector(selectors[key]); }
+                },
+
+                renderAll() {
+                    this.renderMonthSelector(); this.renderTabsAndButtons(); this.renderAllCalendars();
+                    this.renderStatistics(); this.renderManagementList(); this.updateManagementSectionVisibility();
+                },
+
+                renderUnauthorized(reason) {
+                    const container = document.querySelector(CONFIG.DOM_SELECTORS.container);
+                    if (!container) return;
+                    const messages = {
+                        no_telegram_user: '<h1>Ошибка</h1><p>Не удалось получить данные пользователя Telegram. Пожалуйста, открывайте приложение через официальный клиент Telegram.</p>',
+                        firebase_init_failed: '<h1>Ошибка Сервиса</h1><p>Не удалось подключиться к базе данных. Пожалуйста, попробуйте позже.</p>',
+                        auth_failed: '<h1>Ошибка входа</h1><p>Не удалось выполнить вход в систему. Проверьте настройки Firebase Authentication.</p>',
+                        guest_role: `<h1>Доступ ограничен</h1><p>Ваш аккаунт не найден в списке разрешенных. Заявка на доступ отправлена администратору.</p><p>Ваш Telegram ID: <strong>${SERVICE.sanitizeInput(STATE.telegramUser?.id.toString() || 'Неизвестно')}</strong></p>`,
+                        unhandled_error: '<h1>Произошла ошибка</h1><p>Приложение столкнулось с неожиданной ошибкой. Пожалуйста, перезагрузите страницу.</p>'
+                    };
+                    container.innerHTML = `<div class="unauthorized">${messages[reason] || messages.unhandled_error}</div>`;
+                },
+
+                showLoadingIndicator() { if (this.loadingIndicator) this.loadingIndicator.style.display = 'flex'; },
+                hideLoadingIndicator() { if (this.loadingIndicator) this.loadingIndicator.style.display = 'none'; },
+
+                renderUserInfo() {
+                    const userInfoContainer = document.getElementById('userInfo');
+                    if (userInfoContainer) {
+                        const { first_name } = STATE.telegramUser;
+                        const roleText = CONFIG.ROLE_NAMES[STATE.userRole] || 'Неизвестно';
+                        userInfoContainer.innerHTML = `Вы: <span>${SERVICE.sanitizeInput(first_name)}</span> | Роль: <span>${roleText}</span>`;
+                    }
+                },
+
+                renderMonthSelector() {
+                    const monthDropdown = document.getElementById('monthDropdown');
+                    const yearDropdown = document.getElementById('yearDropdown');
+                    if (!monthDropdown || !yearDropdown) return;
+                    const monthNames = Array.from({length: 12}, (_, i) => new Date(0, i).toLocaleString('ru-RU', { month: 'long' }));
+                    monthDropdown.innerHTML = this.createDropdownHTML('month', monthNames, STATE.currentMonth);
+                    const years = Array.from({length: 3}, (_, i) => new Date().getFullYear() - 1 + i);
+                    yearDropdown.innerHTML = this.createDropdownHTML('year', years, STATE.year);
+                },
+
+                createDropdownHTML(type, items, selectedValue) {
+                    const selectedDisplay = type === 'month' ? items[selectedValue] : selectedValue;
+                    const optionsHTML = items.map((item, index) => {
+                        const value = type === 'month' ? index : item;
+                        return `<div class="dropdown-item ${value === selectedValue ? 'selected' : ''}" data-type="${type}" data-value="${value}">${item}</div>`;
+                    }).join('');
+                    return `<div class="dropdown-selected">${selectedDisplay}</div><div class="dropdown-list">${optionsHTML}</div>`;
+                },
+
+                renderTabsAndButtons() {
+                    if (this.tabNavigation) {
+                        this.tabNavigation.innerHTML = `
+                            <button class="tab-button ${STATE.activeTab === 'duty' ? 'active' : ''} btn" data-tab="duty">Дежурства</button>
+                            <button class="tab-button ${STATE.activeTab === 'technician' ? 'active' : ''} btn" data-tab="technician">Техники</button>
+                            <button class="tab-button ${STATE.activeTab === 'general' ? 'active' : ''} btn" data-tab="general">Общий</button>`;
+                    }
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === `${STATE.activeTab}Tab`));
+                    if (this.actionButtonsWrapper) {
+                        this.actionButtonsWrapper.classList.toggle('hidden', !STATE.isEditMode);
+                        if(STATE.isEditMode) {
+                            this.actionButtonsWrapper.innerHTML = `
+                                <button class="btn btn--save" data-action="save">Сохранить</button>
+                                <button class="btn btn--cancel" data-action="cancel">Отменить</button>
+                                <button class="btn btn--clear" data-action="clear">Очистить</button>`;
+                        }
+                    }
+                    if (this.toggleEditModeBtn) {
+                        this.toggleEditModeBtn.textContent = STATE.isEditMode ? 'Завершить' : 'Редактировать';
+                        this.toggleEditModeBtn.classList.toggle('active', STATE.isEditMode);
+                        this.toggleEditModeBtn.style.display = (STATE.userRole === 'guest') ? 'none' : 'flex';
+                    }
+                },
+
+                renderAllCalendars() {
+                    this.renderCalendar('duty'); this.renderCalendar('technician'); this.renderCalendar('general');
+                },
+                
+                renderCalendar(calendarType) {
+                    const grid = this[`${calendarType}CalendarGrid`];
+                    if (!grid) return;
+                    const dataMap = { duty: STATE.duties, technician: STATE.techDuties, general: STATE.generalSchedule };
+                    const monthData = dataMap[calendarType]?.[STATE.currentMonth] || {};
+                    const fragment = document.createDocumentFragment();
+                    ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].forEach(day => {
+                        const header = document.createElement('div');
+                        header.className = 'day-header';
+                        header.textContent = day;
+                        fragment.appendChild(header);
+                    });
+                    const firstDayOfMonth = new Date(STATE.year, STATE.currentMonth, 1);
+                    const daysInMonth = new Date(STATE.year, STATE.currentMonth + 1, 0).getDate();
+                    const firstDayOfWeek = (firstDayOfMonth.getDay() + 6) % 7;
+                    for (let i = 0; i < firstDayOfWeek; i++) {
+                        fragment.appendChild(document.createElement('div')).className = 'day-cell empty';
+                    }
+                    const today = new Date();
+                    for (let day = 1; day <= daysInMonth; day++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'day-cell';
+                        cell.dataset.day = day;
+                        const date = new Date(STATE.year, STATE.currentMonth, day);
+                        if ((date.getDay() + 6) % 7 >= 5) cell.classList.add('weekend');
+                        if (date.toDateString() === today.toDateString()) cell.classList.add('current-day');
+                        const dayAssignments = monthData[day] || [];
+                        const assignmentsArray = Array.isArray(dayAssignments) ? dayAssignments : (typeof dayAssignments === 'string' ? [{ person: dayAssignments, shift: '' }] : []);
+                        cell.innerHTML = `<div class="day-number">${day}</div><div class="day-entries-container">${this.createDayEntryHTML(assignmentsArray)}</div>`;
+                        fragment.appendChild(cell);
+                    }
+                    grid.innerHTML = '';
+                    grid.appendChild(fragment);
+                },
+                
+                createDayEntryHTML(assignmentsArray) {
+                    if (assignmentsArray.length === 0) return `<div class="avatar-initials avatar-empty"></div>`;
+                    const getShiftShort = (shift) => {
+                        if (!shift) return '';
+                        const map = { 'День караул': 'ДК', 'Ночь караул': 'НК', 'Отпуск': 'ОТ', 'Больничный': 'БЛ', 'Выходной': 'В', 'Отсыпной': 'О', 'ДС': 'ДС', '8': '8' };
+                        return map[shift] || shift.slice(0, 2).toUpperCase();
+                    };
+                    return assignmentsArray.map(assignment => {
+                        const { person, shift } = assignment;
+                        const parts = person.split(' ');
+                        const initials = parts.length > 1 ? (parts[0][0] || '') + (parts[1][0] || '') : (person[0] || '');
+                        const shortShift = getShiftShort(shift);
+                        const personColor = this.getColorFor(person);
+                        const textColor = this.isLightColor(personColor) ? '#333' : '#fff';
+                        let avatarClass = 'avatar-initials' + (assignmentsArray.length === 1 ? ' avatar-single' : assignmentsArray.length === 2 ? ' avatar-two' : ' avatar-multiple');
+                        return `<div class="${avatarClass}" title="${SERVICE.sanitizeInput(person)}${shift ? ` (${SERVICE.sanitizeInput(shift)})` : ''}" style="background-color:${personColor}; color:${textColor};">
+                                    <span class="avatar-letters">${SERVICE.sanitizeInput(initials.toUpperCase())}</span>
+                                    ${shift ? `<span class="avatar-shift">${SERVICE.sanitizeInput(shortShift)}</span>` : ''}
+                                </div>`;
+                    }).join('');
+                },
+
+                renderStatistics() {
+                    if (!this.statsList) return;
+                    const stats = {};
+                    STATE.officers.forEach(o => { stats[o] = 0; });
+                    Object.values(STATE.duties[STATE.currentMonth] || {}).forEach(officer => {
+                        if (stats[officer] !== undefined) stats[officer]++;
+                    });
+                    this.statsList.innerHTML = Object.entries(stats)
+                        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+                        .map(([officer, count]) => {
+                            const color = this.getColorFor(officer);
+                            return `<div class="stats-item">
+                                        <div class="stats-name" style="background-color:${color}; color:${this.isLightColor(color) ? '#333' : '#fff'}">${SERVICE.sanitizeInput(officer)}</div>
+                                        <div class="stats-count">${count}</div>
+                                    </div>`;
+                        }).join('');
+                },
+                
+                renderManagementList() {
+                    const container = document.getElementById('managementContent');
+                    if (!container) return;
+
+                    const pendingUsersHTML = Object.entries(STATE.pendingUsers).map(([id, userData]) => `
+                        <div class="pending-item">
+                            <span>${SERVICE.sanitizeInput(userData.name)} (ID: ${id})</span>
+                            <div class="pending-actions">
+                                <button class="btn btn--save btn--small" data-action="approveRequest" data-user-id="${id}" data-user-name="${SERVICE.sanitizeInput(userData.name)}">Одобрить</button>
+                                <button class="btn btn--clear btn--small" data-action="rejectRequest" data-user-id="${id}">Отклонить</button>
+                            </div>
+                        </div>
+                    `).join('');
+
+                    const pendingSection = Object.keys(STATE.pendingUsers).length > 0 ? `
+                        <div class="management-section">
+                            <h4>Заявки на доступ</h4>
+                            <div class="pending-list">${pendingUsersHTML}</div>
+                        </div>
+                    ` : '';
+
+                    const allUsers = Object.entries(STATE.users).sort(([, a], [, b]) => (a.name || '').localeCompare(b.name || ''));
+                    const currentOfficersHTML = allUsers.map(([id, userData]) => {
+                        if (userData.active === false) return '';
+                        const isCurrentUser = id === STATE.telegramUser.id.toString();
+                        const canEdit = STATE.userRole === 'admin' && !isCurrentUser;
+                        const roleOptions = Object.entries(CONFIG.ROLE_NAMES).map(([role, name]) => 
+                            `<option value="${role}" ${userData.role === role ? 'selected' : ''}>${name}</option>`
+                        ).join('');
+                        return `<div class="current-officer-item">
+                                    <span>${SERVICE.sanitizeInput(userData.name)} (ID: ${id})</span>
+                                    <div class="officer-actions">
+                                        <select class="role-selector" data-person-id="${id}" ${canEdit ? '' : 'disabled'}>${roleOptions}</select>
+                                        <button class="delete-officer-btn" data-action="deletePerson" data-person-id-to-delete="${id}" ${canEdit ? '' : 'disabled'}>&times;</button>
+                                    </div>
+                                </div>`;
+                    }).join('');
+                    
+                    const manualAddSection = `
+                        <div class="management-section">
+                             <h4>Добавить вручную</h4>
+                             <div class="officer-management-controls">
+                                <input type="text" id="newOfficerName" placeholder="Имя (Фамилия И.О.)">
+                                <input type="text" id="newOfficerTelegramId" placeholder="Telegram ID">
+                                <button class="btn btn--save" data-action="addPerson" id="addPersonBtn">Добавить</button>
+                            </div>
+                        </div>`;
+
+                    container.innerHTML = `
+                        ${pendingSection}
+                        <div class="management-section">
+                            <h4>Активные пользователи</h4>
+                            <div class="current-officers-list">${currentOfficersHTML}</div>
+                        </div>
+                        ${manualAddSection}
+                    `;
+                    
+                    VIEW.newOfficerNameInput = document.getElementById('newOfficerName');
+                    VIEW.newOfficerTelegramIdInput = document.getElementById('newOfficerTelegramId');
+                },
+
+                updateManagementSectionVisibility() {
+                    const section = document.getElementById('managementSection');
+                    const toggleButton = document.querySelector('[data-target="managementSection"]');
+                    if (!section || !toggleButton) return;
+                    const show = STATE.userRole === 'admin' || STATE.userRole === 'boss';
+                    toggleButton.style.display = show ? 'block' : 'none';
+                    if (!show) section.classList.add('hidden-section');
+                },
+
+                showDutyModal() {
+                    this.editModalTitle.textContent = 'Выберите дежурного';
+                    const currentAssignment = STATE.duties[STATE.currentMonth]?.[STATE.currentSelectedDay];
+                    const optionsHTML = [...STATE.officers, CONFIG.NO_DUTY_LABEL].map(name => {
+                        const isSelected = name === currentAssignment;
+                        return `<button class="officer-option btn ${isSelected ? 'selected' : ''}" data-action="selectDuty" data-name="${SERVICE.sanitizeInput(name)}">${SERVICE.sanitizeInput(name)}</button>`;
+                    }).join('');
+                    this.editModalBody.innerHTML = `<div class="officer-list">${optionsHTML}</div>`;
+                    this.openModal('edit');
+                },
+
+                showAssignmentModal(calendarType) {
+                    this.editModalTitle.textContent = `Назначить смену`;
+                    this.editModalBody.dataset.calendarType = calendarType;
+                    const peopleList = (calendarType === 'technician') ? STATE.technicians : [...new Set([...STATE.officers, ...STATE.technicians])].sort();
+                    const peopleOptions = peopleList.map(p => `<option value="${SERVICE.sanitizeInput(p)}">${SERVICE.sanitizeInput(p)}</option>`).join('');
+                    const shiftOptions = CONFIG.SHIFT_TYPES.map(s => `<option value="${s}">${s}</option>`).join('');
+                    this.editModalBody.innerHTML = `
+                        <div class="assignment-controls">
+                            <select id="personSelect">${peopleOptions}</select>
+                            <select id="shiftSelect">${shiftOptions}</select>
+                            <button class="btn btn--save" data-action="addAssignment">Добавить</button>
+                        </div>
+                        <div class="assignments-list-container">
+                            <h5>Текущие назначения:</h5>
+                            <div id="assignmentsList"></div>
+                        </div>`;
+                    this.renderAssignmentModalList(calendarType);
+                    this.openModal('edit');
+                },
+
+                renderAssignmentModalList(calendarType) {
+                    const list = document.getElementById('assignmentsList');
+                    if (!list) return;
+                    const keyMap = { technician: 'techDuties', general: 'generalSchedule' };
+                    const assignments = STATE[keyMap[calendarType]]?.[STATE.currentMonth]?.[STATE.currentSelectedDay] || [];
+                    list.innerHTML = assignments.length === 0 ? 'Нет назначений.' : assignments.map((a, i) => `
+                        <div class="assignment-item">
+                            <span>${SERVICE.sanitizeInput(a.person)} (${SERVICE.sanitizeInput(a.shift)})</span>
+                            <button class="delete-assignment-btn" data-action="deleteAssignment" data-index="${i}">&times;</button>
+                        </div>`).join('');
+                },
+
+                showEnlargedDayView(day) {
+                    const fullDate = new Date(STATE.year, STATE.currentMonth, day).toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+                    this.viewModalTitle.textContent = fullDate;
+                    const allAssignments = SERVICE.getAllDayAssignments(STATE.currentMonth, day);
+                    if (allAssignments.length > 0) {
+                        this.viewModalBody.innerHTML = '<h5>Назначения на день:</h5>' + allAssignments.map(a => {
+                            const color = this.getColorFor(a.person);
+                            return `<p style="background-color:${color}; color:${this.isLightColor(color) ? '#333' : '#fff'};">${SERVICE.sanitizeInput(a.person)} (${SERVICE.sanitizeInput(a.shift)})</p>`;
+                        }).join('');
+                    } else {
+                        this.viewModalBody.innerHTML = '<p>На этот день нет назначений.</p>';
+                    }
+                    this.openModal('view');
+                },
+                
+                openModal(type) { this[`${type}ModalOverlay`]?.classList.add('show'); },
+                closeModal() {
+                    this.editModalOverlay?.classList.remove('show');
+                    this.viewModalOverlay?.classList.remove('show');
+                },
+                
+                showConfirmModal(message) {
+                    return new Promise(resolve => {
+                        STATE.confirmModalResolve = resolve;
+                        if (this.confirmModalMessage) this.confirmModalMessage.textContent = message;
+                        this.confirmModalOverlay?.classList.add('show');
+                    });
+                },
+                closeConfirmModal(result) {
+                    this.confirmModalOverlay?.classList.remove('show');
+                    if (STATE.confirmModalResolve) STATE.confirmModalResolve(result);
+                    STATE.confirmModalResolve = null;
+                },
+
+                showSummaryModal(summaryText, monthYear) {
+                    if (this.summaryModalTitle) this.summaryModalTitle.textContent = `Сводка за ${SERVICE.sanitizeInput(monthYear)}`;
+                    if (this.summaryModalBody) this.summaryModalBody.innerHTML = `<pre>${SERVICE.sanitizeInput(summaryText)}</pre>`;
+                    this.summaryModalOverlay?.classList.add('show');
+                },
+                closeSummaryModal() { this.summaryModalOverlay?.classList.remove('show'); },
+
+                showNotification(message, type = 'info') {
+                    const notification = document.createElement('div');
+                    notification.className = `notification ${type}`;
+                    notification.textContent = message;
+                    document.body.appendChild(notification);
+                    setTimeout(() => notification.classList.add('show'), 10);
+                    setTimeout(() => {
+                        notification.classList.remove('show');
+                        notification.addEventListener('transitionend', () => notification.remove());
+                    }, 3000);
+                },
+                
+                getColorFor(str) {
+                    if(!str) return '#ccc';
+                    if (STATE.colors[str]) return STATE.colors[str];
+                    let hash = 0;
+                    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                    let color = '#';
+                    for (let i = 0; i < 3; i++) {
+                        color += ('00' + ((hash >> (i * 8)) & 0xFF).toString(16)).substr(-2);
+                    }
+                    return STATE.colors[str] = color;
+                },
+                isLightColor(hex) {
+                    if (!hex || hex.length < 4) return false;
+                    const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.substring(i, i + 2), 16));
+                    return (r * 299 + g * 587 + b * 114) / 1000 > 180;
+                },
+            };
+
+            const CONTROLLER = {
+                init() {
+                    document.body.addEventListener('click', this.globalClickListener.bind(this));
+                },
+
+                globalClickListener(e) {
+                    const target = e.target;
+                    const actionTarget = target.closest('[data-action]');
+                    const dayCell = target.closest('.day-cell:not(.empty)');
+                    if (dayCell) {
+                        SERVICE.handleDayClick(parseInt(dayCell.dataset.day, 10), dayCell.closest('.calendar-grid').dataset.calendarType);
+                        return;
+                    }
+                    const tabButton = target.closest('.tab-button[data-tab]');
+                    if (tabButton) {
+                        SERVICE.switchTab(tabButton.dataset.tab);
+                        return;
+                    }
+                    const dropdownItem = target.closest('.dropdown-item[data-value]');
+                    if (dropdownItem) {
+                        const { type, value } = dropdownItem.dataset;
+                        if (type === 'month') SERVICE.changeMonth(value);
+                        if (type === 'year') SERVICE.changeYear(value);
+                        dropdownItem.closest('.dropdown-list').classList.remove('show');
+                        return;
+                    }
+                    if (target.matches('.dropdown-selected')) {
+                        document.querySelectorAll('.dropdown-list.show').forEach(list => list.classList.remove('show'));
+                        target.nextElementSibling?.classList.toggle('show');
+                        return;
+                    }
+                    if (!target.closest('.custom-dropdown')) {
+                         document.querySelectorAll('.dropdown-list.show').forEach(list => list.classList.remove('show'));
+                    }
+                    if (actionTarget) {
+                        const { action, name, index, personIdToDelete, userId, userName } = actionTarget.dataset;
+                        switch (action) {
+                            case 'toggleEditMode': SERVICE.toggleEditMode(); break;
+                            case 'save': SERVICE.saveData(); break;
+                            case 'clear': SERVICE.clearMonth(); break;
+                            case 'cancel': SERVICE.cancelChanges(); break;
+                            case 'toggleSection': document.getElementById(actionTarget.dataset.target)?.classList.toggle('hidden-section'); break;
+                            case 'addPerson': SERVICE.addPerson(VIEW.newOfficerNameInput.value, VIEW.newOfficerTelegramIdInput.value); break;
+                            case 'deletePerson': SERVICE.deletePerson(personIdToDelete); break;
+                            case 'approveRequest': SERVICE.approveRequest(userId, userName); break; 
+                            case 'rejectRequest': SERVICE.rejectRequest(userId); break; 
+                            case 'closeModal': VIEW.closeModal(); break;
+                            case 'closeSummaryModal': VIEW.closeSummaryModal(); break;
+                            case 'selectDuty': SERVICE.assignDuty(name); break;
+                            case 'addAssignment': {
+                                const modalBody = target.closest('.modal-body');
+                                const person = modalBody.querySelector('#personSelect').value;
+                                const shift = modalBody.querySelector('#shiftSelect').value;
+                                SERVICE.addAssignment(person, shift, modalBody.dataset.calendarType);
+                                break;
+                            }
+                            case 'deleteAssignment': {
+                                 const modalBody = target.closest('.modal-body');
+                                 SERVICE.deleteAssignment(parseInt(index, 10), modalBody.dataset.calendarType);
+                                 break;
+                            }
+                        }
+                    }
+                    if (target.closest('#confirmModalConfirmBtn')) VIEW.closeConfirmModal(true);
+                    if (target.closest('#confirmModalCancelBtn') || target.closest('.modal-close[data-action="closeConfirmModal"]')) VIEW.closeConfirmModal(false);
+                    if (target.matches('.role-selector')) {
+                        target.onchange = () => SERVICE.changePersonRole(target.dataset.personId, target.value);
+                    }
+                    if (target.id === 'newOfficerTelegramId') {
+                         target.addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g, ''); });
+                    }
+                },
+            };
+
+            document.addEventListener('DOMContentLoaded', () => SERVICE.init());
+        })();
+    </script>
+    <style>
+        :root {
+            --bg-main: #1a1a2e; --bg-container: #0f3460; --bg-element: #2d3748;
+            --bg-element-hover: #4a5568; --bg-accent: #533483; --bg-weekend: #3d2a45;
+            --text-main: #e0e6ed; --text-light: #ffffff; --border-main: #4a5568;
+            --border-accent: #00bfff; --btn-green: #059669; --btn-green-hover: #047857;
+            --btn-red: #dc2626; --btn-red-hover: #b91c1c; --btn-blue: #2563eb;
+            --btn-blue-hover: #1d4ed8; --shadow-main: rgba(0,0,0,0.3);
+            --shadow-accent: rgba(0, 191, 255, 0.5);
+            --font-size-xs: 8px; --font-size-sm: 10px; --font-size-md: 12px;
+            --font-size-lg: 14px; --font-size-xl: 16px; --font-size-xxl: 20px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: var(--bg-main); min-height: 100vh; padding: 10px; color: var(--text-main); }
+        .container { max-width: 1200px; width: 100%; margin: 0 auto; background: var(--bg-container); border-radius: 20px; box-shadow: 0 20px 40px var(--shadow-main); overflow: hidden; }
+        .unauthorized { text-align: center; padding: 50px; }
+        .unauthorized h1 { color: var(--btn-red); }
+        .unauthorized p { line-height: 1.6; }
+        .header { background: linear-gradient(135deg, var(--bg-accent) 0%, var(--bg-container) 100%); color: var(--text-light); padding: 15px; text-align: center; }
+        .user-info { font-size: 0.9em; opacity: 0.9; margin-bottom: 10px; }
+        .user-info span { font-weight: bold; }
+        .header h1 { font-size: 1.8em; font-weight: 300; margin-bottom: 15px; }
+        .month-year-selectors { display: flex; justify-content: center; gap: 10px; }
+        .custom-dropdown { position: relative; user-select: none; }
+        .dropdown-selected { background: var(--bg-element); border: 1px solid var(--border-main); border-radius: 10px; padding: 8px 30px 8px 12px; cursor: pointer; position: relative; }
+        .dropdown-selected::after { content: '▼'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 0.8em; }
+        .dropdown-list { display: none; position: absolute; left: 0; top: 110%; z-index: 100; background: var(--bg-element); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); max-height: 220px; overflow-y: auto; padding: 4px 0; min-width: 100%; }
+        .dropdown-list.show { display: block; }
+        .dropdown-item { padding: 8px 12px; cursor: pointer; transition: background 0.2s; }
+        .dropdown-item:hover, .dropdown-item.selected { background: var(--bg-accent); }
+        .btn { padding: 10px 18px; border: 1px solid transparent; border-radius: 12px; font-size: var(--font-size-lg); cursor: pointer; transition: all 0.2s; font-weight: 500; box-shadow: 0 2px 5px rgba(0,0,0,0.2); color: var(--text-light); }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn--save { background: var(--btn-green); } .btn--save:hover:not(:disabled) { background: var(--btn-green-hover); }
+        .btn--clear { background: var(--btn-red); } .btn--clear:hover:not(:disabled) { background: var(--btn-red-hover); }
+        .btn--cancel { background: var(--bg-element-hover); }
+        .btn--edit-mode { background: var(--btn-blue); color: var(--text-light); }
+        .btn--edit-mode.active { background: var(--btn-green); border-color: var(--text-light); box-shadow: 0 0 8px var(--btn-green); }
+        .btn--blue { background: var(--btn-blue); } .btn--blue:hover:not(:disabled) { background: var(--btn-blue-hover); }
+        .btn--toggle { width: 100%; margin-top: 10px; background: var(--bg-element); }
+        .btn--small { padding: 5px 10px; font-size: 12px; }
+        .main-content { padding: 15px; }
+        .section-container { background: var(--bg-main); border-radius: 15px; padding: 15px; border: 1px solid var(--bg-element); margin-bottom: 15px; }
+        .hidden-section { display: none; }
+        .tab-navigation { display: flex; justify-content: center; margin-bottom: 15px; gap: 10px; flex-wrap: wrap; }
+        .tab-button { background: var(--bg-element-hover); }
+        .tab-button.active { background: var(--bg-accent); box-shadow: 0 0 10px var(--shadow-accent); }
+        .tab-content { display: none; } .tab-content.active { display: block; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+        .day-header { text-align: center; font-weight: 600; padding: 8px 4px; font-size: var(--font-size-md); }
+        .day-cell { background: var(--bg-element); padding: 4px; cursor: pointer; transition: background 0.2s; display: flex; flex-direction: column; gap: 4px; border-radius: 8px; min-height: 80px; }
+        .day-cell:hover:not(.empty) { background: var(--bg-element-hover); }
+        .day-cell.weekend { background: var(--bg-weekend); }
+        .day-cell.current-day { border: 2px solid var(--border-accent); }
+        .day-number { font-weight: 700; font-size: var(--font-size-lg); }
+        .day-entries-container { display: flex; flex-wrap: wrap; gap: 1px; justify-content: center; align-items: center; flex-grow: 1; }
+        .avatar-initials { border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: bold; text-align: center; flex-shrink: 0; }
+        .avatar-letters { font-weight: bold; line-height: 1; }
+        .avatar-shift { font-size: 0.8em; opacity: 0.85; }
+        .avatar-single { width: 38px; height: 38px; font-size: 1.1em; }
+        .avatar-two { width: 28px; height: 28px; font-size: 0.8em; }
+        .avatar-multiple { width: 22px; height: 22px; font-size: 10px; }
         .avatar-empty { width: 100%; height: 100%; background: transparent !important; }
         .stats-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
         .stats-item { display: flex; justify-content: space-between; align-items: center; background: var(--bg-element); padding: 5px; border-radius: 8px; }
