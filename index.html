@@ -481,10 +481,12 @@
                     try {
                         console.log('Попытка сохранения данных:', {
                             userRole: STATE.userRole,
+                            telegramUserId: STATE.telegramUser?.id,
                             currentUserId: STATE.currentUserId,
                             year: STATE.year,
                             month: STATE.currentMonth,
-                            hasUnsavedChanges: STATE.hasUnsavedChanges
+                            hasUnsavedChanges: STATE.hasUnsavedChanges,
+                            appId: STATE.appId
                         });
                         
                         await setDoc(monthDocRef, {
@@ -503,13 +505,15 @@
                             code: e.code,
                             message: e.message,
                             userRole: STATE.userRole,
-                            currentUserId: STATE.currentUserId
+                            telegramUserId: STATE.telegramUser?.id,
+                            currentUserId: STATE.currentUserId,
+                            appId: STATE.appId
                         });
                         
                         // Более информативные сообщения об ошибках
                         let errorMessage = 'Ошибка сохранения данных';
                         if (e.code === 'permission-denied') {
-                            errorMessage = 'Недостаточно прав для сохранения. Проверьте вашу роль в системе.';
+                            errorMessage = `Недостаточно прав для сохранения. Роль: ${STATE.userRole}, Telegram ID: ${STATE.telegramUser?.id}`;
                         } else if (e.code === 'unavailable') {
                             errorMessage = 'Сервис временно недоступен. Попробуйте позже.';
                         } else if (e.code === 'unauthenticated') {
@@ -765,11 +769,39 @@
                 },
 
                 async changePersonRole(personId, newRole) {
-                    if (STATE.userRole !== 'admin' || personId === STATE.telegramUser.id.toString()) return;
+                    if (STATE.userRole !== 'admin') {
+                        VIEW.showNotification('Только администратор может изменять роли', 'error');
+                        return;
+                    }
+                    
+                    if (personId === STATE.telegramUser.id.toString()) {
+                        VIEW.showNotification('Нельзя изменить свою собственную роль', 'error');
+                        return;
+                    }
+                    
+                    const personName = STATE.users[personId]?.name || 'Неизвестный пользователь';
+                    
                     try {
                         await updateDoc(doc(STATE.db, `artifacts/${STATE.appId}/public/data/${CONFIG.STORAGE_KEYS.USERS_COLLECTION}`, personId), { role: newRole });
-                        VIEW.showNotification(`Роль ${STATE.users[personId].name} изменена.`, 'success');
-                    } catch (e) { VIEW.showNotification("Ошибка изменения роли.", "error"); }
+                        VIEW.showNotification(`Роль ${personName} изменена на "${CONFIG.ROLE_NAMES[newRole]}".`, 'success');
+                    } catch (e) { 
+                        console.error("Ошибка изменения роли:", e);
+                        
+                        let errorMessage = "Ошибка изменения роли";
+                        if (e.code === 'permission-denied') {
+                            errorMessage = 'Недостаточно прав для изменения ролей. Обратитесь к администратору.';
+                        } else if (e.code === 'not-found') {
+                            errorMessage = 'Пользователь не найден в базе данных.';
+                        } else if (e.code === 'unavailable') {
+                            errorMessage = 'Сервис временно недоступен. Попробуйте позже.';
+                        } else if (e.code === 'unauthenticated') {
+                            errorMessage = 'Требуется повторная авторизация. Перезагрузите страницу.';
+                        } else if (e.message) {
+                            errorMessage = `Ошибка: ${e.message}`;
+                        }
+                        
+                        VIEW.showNotification(errorMessage, "error"); 
+                    }
                 },
                 
                 async clearMonth() {
@@ -937,9 +969,16 @@
                 renderUserInfo() {
                     const userInfoContainer = document.getElementById('userInfo');
                     if (userInfoContainer) {
-                        const { first_name } = STATE.telegramUser;
-                        const roleText = CONFIG.ROLE_NAMES[STATE.userRole] || 'Неизвестно';
-                        userInfoContainer.innerHTML = `Вы: <span>${SERVICE.sanitizeInput(first_name)}</span> | Роль: <span>${roleText}</span>`;
+                        // Показываем информацию только администраторам
+                        if (STATE.userRole === 'admin') {
+                            const { first_name } = STATE.telegramUser;
+                            const roleText = CONFIG.ROLE_NAMES[STATE.userRole] || 'Неизвестно';
+                            userInfoContainer.innerHTML = `Вы: <span>${SERVICE.sanitizeInput(first_name)}</span> | Роль: <span>${roleText}</span>`;
+                        } else {
+                            // Для остальных пользователей показываем только статус доступа
+                            const accessStatus = STATE.userRole === 'guest' ? 'Доступ ограничен' : 'Доступ разрешен';
+                            userInfoContainer.innerHTML = `<span>${accessStatus}</span>`;
+                        }
                     }
                 },
 
