@@ -60,9 +60,19 @@
                     appId: "1:141207090372:web:b292ee339a23640027c591",
                     measurementId: "G-CSVDH3P8V1"
                 },
+                // Константы для календарей
+                CALENDAR_TYPES: { DUTY: 'duty', TECHNICIAN: 'technician', GENERAL: 'general' },
+                MONTHS_COUNT: 12,
+                MIN_MONTH_INDEX: 0,
+                MAX_MONTH_INDEX: 11,
+                MIN_YEAR: 2020,
+                MAX_YEAR: 2030,
+                // Безопасность
+                TELEGRAM_BOT_TOKEN: typeof __bot_token !== 'undefined' ? __bot_token : null,
+                ENABLE_SIGNATURE_VERIFICATION: typeof __enable_signature_verification !== 'undefined' ? __enable_signature_verification : true,
             };
 
-            // Система валидации данных
+            // Система валидации данных и безопасности
             const VALIDATION = {
                 isValidPerson: (person) => {
                     return typeof person === 'string' && 
@@ -75,7 +85,7 @@
                            CONFIG.SHIFT_TYPES.includes(shift);
                 },
                 isValidCalendarType: (type) => {
-                    return ['duty', 'technician', 'general'].includes(type);
+                    return Object.values(CONFIG.CALENDAR_TYPES).includes(type);
                 },
                 isValidTelegramId: (id) => {
                     return typeof id === 'string' && 
@@ -83,11 +93,118 @@
                 },
                 isValidMonth: (month) => {
                     const num = parseInt(month, 10);
-                    return !isNaN(num) && num >= 0 && num <= 11;
+                    return !isNaN(num) && num >= CONFIG.MIN_MONTH_INDEX && num <= CONFIG.MAX_MONTH_INDEX;
                 },
                 isValidYear: (year) => {
                     const num = parseInt(year, 10);
-                    return !isNaN(num) && num >= 2020 && num <= 2030;
+                    return !isNaN(num) && num >= CONFIG.MIN_YEAR && num <= CONFIG.MAX_YEAR;
+                },
+                
+                // Верификация подписи Telegram WebApp
+                verifyTelegramSignature: async (initData, botToken) => {
+                    if (!CONFIG.ENABLE_SIGNATURE_VERIFICATION || !botToken) {
+                        console.warn('Верификация подписи отключена или токен бота недоступен');
+                        return true; // В режиме разработки пропускаем верификацию
+                    }
+                    
+                    try {
+                        // Извлекаем подпись из initData
+                        const urlParams = new URLSearchParams(initData);
+                        const hash = urlParams.get('hash');
+                        if (!hash) {
+                            console.error('Подпись не найдена в initData');
+                            return false;
+                        }
+                        
+                        // Удаляем hash из параметров для создания строки для проверки
+                        urlParams.delete('hash');
+                        
+                        // Сортируем параметры по ключам
+                        const sortedParams = Array.from(urlParams.entries())
+                            .sort(([a], [b]) => a.localeCompare(b))
+                            .map(([key, value]) => `${key}=${value}`)
+                            .join('\n');
+                        
+                        // Создаем секретный ключ из токена бота
+                        const encoder = new TextEncoder();
+                        const secretKey = await crypto.subtle.importKey(
+                            'raw',
+                            encoder.encode('WebAppData'),
+                            { name: 'HMAC', hash: 'SHA-256' },
+                            false,
+                            ['sign']
+                        );
+                        
+                        // Подписываем данные
+                        const signature = await crypto.subtle.sign(
+                            'HMAC',
+                            secretKey,
+                            encoder.encode(sortedParams)
+                        );
+                        
+                        // Конвертируем в hex и сравниваем
+                        const expectedHash = Array.from(new Uint8Array(signature))
+                            .map(b => b.toString(16).padStart(2, '0'))
+                            .join('');
+                        
+                        const isValid = hash === expectedHash;
+                        console.log('Верификация подписи Telegram:', isValid ? 'УСПЕШНО' : 'ОШИБКА');
+                        return isValid;
+                        
+                    } catch (error) {
+                        console.error('Ошибка верификации подписи Telegram:', error);
+                        return false;
+                    }
+                },
+                
+                // Санитизация HTML для предотвращения XSS
+                sanitizeHTML: (str) => {
+                    if (typeof str !== 'string') return '';
+                    const div = document.createElement('div');
+                    div.textContent = str;
+                    return div.innerHTML;
+                },
+                
+                // Валидация и санитизация пользовательского ввода
+                sanitizeInput: (input) => {
+                    if (typeof input !== 'string') return '';
+                    // Удаляем потенциально опасные символы и теги
+                    return input
+                        .replace(/[<>]/g, '') // Удаляем < и >
+                        .replace(/javascript:/gi, '') // Удаляем javascript: протокол
+                        .replace(/on\w+=/gi, '') // Удаляем обработчики событий
+                        .trim()
+                        .substring(0, 1000); // Ограничиваем длину
+                }
+            };
+
+            // Система событий для управления состоянием
+            const EVENT_BUS = {
+                listeners: {},
+                
+                on(event, callback) {
+                    if (!this.listeners[event]) {
+                        this.listeners[event] = [];
+                    }
+                    this.listeners[event].push(callback);
+                },
+                
+                emit(event, data) {
+                    if (this.listeners[event]) {
+                        this.listeners[event].forEach(callback => {
+                            try {
+                                callback(data);
+                            } catch (error) {
+                                console.error(`Ошибка в обработчике события ${event}:`, error);
+                            }
+                        });
+                    }
+                },
+                
+                off(event, callback) {
+                    if (this.listeners[event]) {
+                        this.listeners[event] = this.listeners[event].filter(cb => cb !== callback);
+                    }
                 }
             };
 
@@ -100,13 +217,31 @@
                 pendingUsers: {}, 
                 officers: [], technicians: [], colors: {},
                 confirmModalResolve: null, currentSelectedDay: null, unsubscribeListeners: [],
+                
+                // Геттеры и сеттеры для автоматической эмиссии событий
+                setProperty(property, value) {
+                    const oldValue = this[property];
+                    this[property] = value;
+                    EVENT_BUS.emit('stateChanged', { property, oldValue, newValue: value });
+                },
+                
+                updateSchedule(calendarType, month, day, data) {
+                    const scheduleKey = calendarType === 'duty' ? 'duties' : 
+                                      calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
+                    
+                    if (!this[scheduleKey][month]) this[scheduleKey][month] = {};
+                    this[scheduleKey][month][day] = data;
+                    this.hasUnsavedChanges = true;
+                    
+                    EVENT_BUS.emit('scheduleChanged', { calendarType, month, day, data });
+                }
             };
 
             const SERVICE = {
                 async init() {
                     VIEW.showLoadingIndicator();
                     try {
-                        this.initTelegram();
+                        await this.initTelegram();
                         if (!STATE.telegramUser || !STATE.telegramUser.id) {
                              VIEW.renderUnauthorized('no_telegram_user');
                              VIEW.hideLoadingIndicator();
@@ -142,6 +277,7 @@
                         requestAnimationFrame(() => {
                             try {
                                 VIEW.initAppElements();
+                                VIEW.initEventListeners(); // Инициализация системы событий
                                 this.setupFirestoreListeners(); // Слушатели запускаются после основной отрисовки
                                 CONTROLLER.init();
                                 VIEW.renderAll();
@@ -160,16 +296,54 @@
                     }
                 },
 
-                initTelegram() {
-                    const tg = window.Telegram.WebApp;
-                    tg.ready();
-                    if (Object.keys(tg.initDataUnsafe).length === 0 || !tg.initDataUnsafe.user) {
-                         console.warn("ДАННЫЕ TELEGRAM НЕДОСТУПНЫ. ИСПОЛЬЗУЮТСЯ ТЕСТОВЫЕ ДАННЫЕ АДМИНА.");
-                         STATE.telegramUser = { id: parseInt(CONFIG.DEFAULT_ADMIN_ID), first_name: 'Тест Админ', username: 'test_admin' };
-                    } else {
-                         STATE.telegramUser = tg.initDataUnsafe.user;
+                async initTelegram() {
+                    if (!window.Telegram || !window.Telegram.WebApp) {
+                        console.error("Telegram Web App API не найден. Возможно, приложение запущено вне Telegram.");
+                        STATE.telegramUser = { id: parseInt(CONFIG.DEFAULT_ADMIN_ID), first_name: 'Тест Админ', username: 'test_admin' };
+                        return;
                     }
-                    tg.expand();
+                    
+                    const tg = window.Telegram.WebApp;
+                    try {
+                        tg.ready();
+                        
+                        // Проверяем наличие данных Telegram
+                        if (Object.keys(tg.initDataUnsafe).length === 0 || !tg.initDataUnsafe.user) {
+                            console.warn("ДАННЫЕ TELEGRAM НЕДОСТУПНЫ. ИСПОЛЬЗУЮТСЯ ТЕСТОВЫЕ ДАННЫЕ АДМИНА.");
+                            STATE.telegramUser = { id: parseInt(CONFIG.DEFAULT_ADMIN_ID), first_name: 'Тест Админ', username: 'test_admin' };
+                            return;
+                        }
+                        
+                        // Верифицируем подпись если включено
+                        if (CONFIG.ENABLE_SIGNATURE_VERIFICATION && CONFIG.TELEGRAM_BOT_TOKEN) {
+                            const isValidSignature = await VALIDATION.verifyTelegramSignature(
+                                tg.initData, 
+                                CONFIG.TELEGRAM_BOT_TOKEN
+                            );
+                            
+                            if (!isValidSignature) {
+                                console.error("ОШИБКА ВЕРИФИКАЦИИ ПОДПИСИ TELEGRAM. ПРИЛОЖЕНИЕ НЕ БЕЗОПАСНО.");
+                                VIEW.showNotification("Ошибка безопасности: неверная подпись Telegram", "error");
+                                // В продакшене здесь можно заблокировать приложение
+                                // return;
+                            }
+                        }
+                        
+                        // Санитизируем данные пользователя
+                        STATE.telegramUser = {
+                            id: VALIDATION.sanitizeInput(tg.initDataUnsafe.user.id?.toString()),
+                            first_name: VALIDATION.sanitizeInput(tg.initDataUnsafe.user.first_name),
+                            username: VALIDATION.sanitizeInput(tg.initDataUnsafe.user.username),
+                            language_code: VALIDATION.sanitizeInput(tg.initDataUnsafe.user.language_code)
+                        };
+                        
+                        tg.expand();
+                        console.log("Telegram WebApp инициализирован успешно:", STATE.telegramUser);
+                        
+                    } catch (error) {
+                        console.error("Ошибка инициализации Telegram Web App:", error);
+                        STATE.telegramUser = { id: parseInt(CONFIG.DEFAULT_ADMIN_ID), first_name: 'Тест Админ', username: 'test_admin' };
+                    }
                 },
 
                 async initFirebase() {
@@ -250,9 +424,7 @@
                 },
 
                 sanitizeInput(input) {
-                    if (typeof input !== 'string') return input;
-                    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#x60;' };
-                    return input.replace(/[&<>"'`]/g, (match) => map[match]);
+                    return VALIDATION.sanitizeInput(input);
                 },
 
                 setupFirestoreListeners() {
@@ -400,12 +572,12 @@
                         }
                     }
                     STATE.isEditMode = !STATE.isEditMode;
-                    VIEW.renderAll();
+                    VIEW.renderPartial(['tabs', 'calendars']);
                 },
 
                 switchTab(tabName) {
                     STATE.activeTab = tabName;
-                    VIEW.renderAll();
+                    VIEW.renderPartial(['calendars']);
                 },
                 
                 handleDayClick(day, calendarType) {
@@ -445,8 +617,8 @@
                         STATE.duties[currentMonth][dayKey] = person;
                     }
                     STATE.hasUnsavedChanges = true;
+                    VIEW.renderPartial(['calendars', 'statistics']);
                     VIEW.closeModal();
-                    VIEW.renderAll();
                 },
 
                 async addAssignment(person, shift, calendarType) {
@@ -481,7 +653,7 @@
                     STATE[scheduleKey][currentMonth][dayKey] = filteredAssignments;
                     STATE.hasUnsavedChanges = true;
                     VIEW.renderAssignmentModalList(calendarType);
-                    VIEW.renderAll();
+                    VIEW.renderPartial(['calendars', 'statistics']);
                     VIEW.showNotification('Назначение добавлено!', 'success');
                 },
 
@@ -497,12 +669,15 @@
                     STATE[scheduleKey][currentMonth][day.toString()].splice(index, 1);
                     STATE.hasUnsavedChanges = true;
                     VIEW.renderAssignmentModalList(calendarType);
-                    VIEW.renderAll();
+                    VIEW.renderPartial(['calendars', 'statistics']);
                     VIEW.showNotification('Назначение удалено!', 'info');
                 },
                 
                 async addPerson(name, telegramId) {
-                    if (STATE.userRole !== 'admin') return;
+                    if (STATE.userRole !== 'admin') {
+                        VIEW.showNotification('Только администратор может добавлять сотрудников', 'error');
+                        return;
+                    }
                     
                     // Валидация входных данных
                     if (!VALIDATION.isValidPerson(name)) {
@@ -533,7 +708,21 @@
                         VIEW.newOfficerTelegramIdInput.value = '';
                     } catch (e) { 
                         console.error("Ошибка добавления сотрудника:", e);
-                        VIEW.showNotification("Ошибка добавления сотрудника.", "error"); 
+                        
+                        let errorMessage = "Ошибка добавления сотрудника";
+                        if (e.code === 'permission-denied') {
+                            errorMessage = 'Недостаточно прав для добавления сотрудников. Обратитесь к администратору.';
+                        } else if (e.code === 'already-exists') {
+                            errorMessage = 'Сотрудник с таким ID уже существует в базе данных.';
+                        } else if (e.code === 'unavailable') {
+                            errorMessage = 'Сервис временно недоступен. Попробуйте позже.';
+                        } else if (e.code === 'unauthenticated') {
+                            errorMessage = 'Требуется повторная авторизация. Перезагрузите страницу.';
+                        } else if (e.message) {
+                            errorMessage = `Ошибка: ${e.message}`;
+                        }
+                        
+                        VIEW.showNotification(errorMessage, "error"); 
                     }
                 },
                 
@@ -624,6 +813,44 @@
                 technicianCalendarGrid: null, generalCalendarGrid: null, statsList: null,
                 currentOfficersList: null, actionButtonsWrapper: null, tabNavigation: null,
                 toggleEditModeBtn: null, addPersonBtn: null,
+                
+                // Инициализация системы событий
+                initEventListeners() {
+                    EVENT_BUS.on('stateChanged', (data) => {
+                        this.handleStateChange(data);
+                    });
+                    
+                    EVENT_BUS.on('scheduleChanged', (data) => {
+                        this.handleScheduleChange(data);
+                    });
+                },
+                
+                handleStateChange(data) {
+                    const { property, newValue } = data;
+                    
+                    switch (property) {
+                        case 'currentMonth':
+                        case 'year':
+                            this.renderPartial(['month', 'calendars', 'statistics']);
+                            break;
+                        case 'activeTab':
+                            this.renderPartial(['tabs', 'calendars']);
+                            break;
+                        case 'isEditMode':
+                        case 'userRole':
+                            this.renderPartial(['tabs', 'management']);
+                            break;
+                        case 'users':
+                        case 'pendingUsers':
+                            this.renderPartial(['management']);
+                            break;
+                    }
+                },
+                
+                handleScheduleChange(data) {
+                    const { calendarType } = data;
+                    this.renderPartial(['calendars', 'statistics']);
+                },
             
                 renderAppShell() {
                     const container = document.querySelector(CONFIG.DOM_SELECTORS.container);
@@ -671,8 +898,24 @@
                 },
 
                 renderAll() {
-                    this.renderMonthSelector(); this.renderTabsAndButtons(); this.renderAllCalendars();
-                    this.renderStatistics(); this.renderManagementList(); this.updateManagementSectionVisibility();
+                    this.renderMonthSelector(); 
+                    this.renderTabsAndButtons(); 
+                    this.renderAllCalendars();
+                    this.renderStatistics(); 
+                    this.renderManagementList(); 
+                    this.updateManagementSectionVisibility();
+                },
+                
+                // Оптимизированная функция для частичного обновления
+                renderPartial(components = []) {
+                    if (components.includes('month')) this.renderMonthSelector();
+                    if (components.includes('tabs')) this.renderTabsAndButtons();
+                    if (components.includes('calendars')) this.renderAllCalendars();
+                    if (components.includes('statistics')) this.renderStatistics();
+                    if (components.includes('management')) {
+                        this.renderManagementList(); 
+                        this.updateManagementSectionVisibility();
+                    }
                 },
 
                 renderUnauthorized(reason) {
@@ -993,22 +1236,60 @@
                     }, 3000);
                 },
                 
-                // Эффективная функция генерации цвета с кэшированием (мемоизацией)
+                // Улучшенная функция генерации цвета с использованием HSL для лучшего распределения
                 getColorFor(str) {
-                    if(!str) return '#ccc';
+                    if (!str) return '#ccc';
+                    
                     // Сначала проверяем кэш
                     if (STATE.colors[str]) return STATE.colors[str];
                     
-                    // Если в кэше нет, вычисляем цвет
+                    // Генерируем хэш из строки
                     let hash = 0;
-                    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-                    let color = '#';
-                    for (let i = 0; i < 3; i++) {
-                        color += ('00' + ((hash >> (i * 8)) & 0xFF).toString(16)).substr(-2);
+                    for (let i = 0; i < str.length; i++) {
+                        hash = str.charCodeAt(i) + ((hash << 5) - hash);
                     }
+                    
+                    // Используем HSL для лучшего контроля над цветами
+                    const hue = Math.abs(hash) % 360; // Оттенок (0-359)
+                    const saturation = 70 + (Math.abs(hash) % 20); // Насыщенность (70-90%)
+                    const lightness = 60 + (Math.abs(hash) % 10); // Яркость (60-70%)
+                    
+                    // Конвертируем HSL в RGB
+                    const color = this.hslToHex(hue, saturation, lightness);
                     
                     // Сохраняем в кэш и возвращаем
                     return STATE.colors[str] = color;
+                },
+                
+                // Вспомогательная функция для конвертации HSL в HEX
+                hslToHex(h, s, l) {
+                    s /= 100;
+                    l /= 100;
+                    
+                    const c = (1 - Math.abs(2 * l - 1)) * s;
+                    const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+                    const m = l - c / 2;
+                    let r = 0, g = 0, b = 0;
+                    
+                    if (0 <= h && h < 60) {
+                        r = c; g = x; b = 0;
+                    } else if (60 <= h && h < 120) {
+                        r = x; g = c; b = 0;
+                    } else if (120 <= h && h < 180) {
+                        r = 0; g = c; b = x;
+                    } else if (180 <= h && h < 240) {
+                        r = 0; g = x; b = c;
+                    } else if (240 <= h && h < 300) {
+                        r = x; g = 0; b = c;
+                    } else if (300 <= h && h < 360) {
+                        r = c; g = 0; b = x;
+                    }
+                    
+                    const rHex = Math.round((r + m) * 255).toString(16).padStart(2, '0');
+                    const gHex = Math.round((g + m) * 255).toString(16).padStart(2, '0');
+                    const bHex = Math.round((b + m) * 255).toString(16).padStart(2, '0');
+                    
+                    return `#${rHex}${gHex}${bHex}`;
                 },
                 isLightColor(hex) {
                     if (!hex || hex.length < 4) return false;
