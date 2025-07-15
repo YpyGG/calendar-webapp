@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Календарь дежурств</title>
+  <meta name="description" content="Календарь дежурств для Telegram и Яндекс. Интеграция с ботом, аналитика, PWA.">
+  <meta name="robots" content="index,follow">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="../src/css/styles.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Яндекс.Метрика (замените YOUR_COUNTER_ID) -->
+  <script type="text/javascript" >
+    (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+    m[i].l=1*new Date();
+    k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+    (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
+    ym(YOUR_COUNTER_ID, "init", { clickmap:true, trackLinks:true, accurateTrackBounce:true, webvisor:true });
+  </script>
+  <noscript><div><img src="https://mc.yandex.ru/watch/YOUR_COUNTER_ID" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="../src/js/app.js"></script>
+</body>
+</html> 
