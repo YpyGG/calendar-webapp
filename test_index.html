@@ -920,6 +920,67 @@ input[aria-invalid="true"] {
         font-size: 1em;
     }
 }
+@media (max-width: 600px) {
+    .header {
+        padding: 4px 2px;
+    }
+    .month-year-selectors {
+        gap: 2px;
+        margin-bottom: 4px;
+    }
+    .month-year-selectors select {
+        min-width: 54px;
+        font-size: 0.8em;
+        padding: 1px 2px;
+    }
+    .tab-navigation {
+        gap: 2px;
+        margin-bottom: 4px;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+    .tab-navigation::-webkit-scrollbar { display: none; }
+    .tab-button {
+        min-width: 70px;
+        font-size: 0.85em;
+        padding: 4px 0;
+        flex: 0 0 auto;
+    }
+    .top-controls-group {
+        left: 2px;
+        top: 2px;
+        gap: 2px;
+    }
+    .top-controls-group .btn-icon-circle {
+        width: 28px;
+        height: 28px;
+        font-size: 0.9em;
+    }
+}
+
+/* Доступность: фокус-стили для всех интерактивных элементов */
+button:focus-visible, .tab-button:focus-visible, select:focus-visible {
+    outline: 2px solid #00bfff;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px #00bfff33;
+    z-index: 2;
+}
+
+/* Минимальные размеры для кликабельных элементов */
+button, .tab-button, .btn-icon-circle {
+    min-width: 44px;
+    min-height: 44px;
+}
+
+@media (max-width: 600px) {
+    button, .tab-button, .btn-icon-circle {
+        min-width: 44px;
+        min-height: 44px;
+        font-size: 0.95em;
+    }
+}
     </style>
 </head>
 <body data-theme="dark">
@@ -2992,21 +3053,18 @@ input[aria-invalid="true"] {
         const CONTROLLER = {
             init() {
                 document.body.addEventListener('click', this.globalClickListener.bind(this));
-                // Добавляем обработчик для изменения месяца И для изменения роли
                 document.addEventListener('change', this.globalChangeListener.bind(this));
-                // Добавляем обработчики событий касания для календаря
                 this.addCalendarTouchListeners();
-
-                // Инициализация Web Vitals
-                if (window.getCLS && window.getFID && window.getFCP && window.getLCP && window.getTTFB) {
-                    window.getCLS(console.log);
-                    window.getFID(console.log);
-                    window.getFCP(console.log);
-                    window.getLCP(console.log);
-                    window.getTTFB(console.log);
-                } else {
-                    console.warn('Web Vitals library not fully loaded or available.');
-                }
+                // Фокусировка на первом элементе модалки при открытии
+                document.querySelectorAll('.modal-overlay').forEach(overlay => {
+                    overlay.addEventListener('transitionend', () => {
+                        if (overlay.classList.contains('show')) {
+                            const firstInput = overlay.querySelector('input, select, button, textarea, [tabindex]:not([tabindex="-1"])');
+                            if (firstInput) firstInput.focus();
+                        }
+                    });
+                });
+                // Закрытие модалок по Esc уже реализовано через _escapeKeyListener
             },
 
             ACTIONS: {
@@ -3077,7 +3135,8 @@ input[aria-invalid="true"] {
                     if (!btn) return;
                     STATE.activeTab = btn.dataset.tab;
                     VIEW.renderTabsAndButtons();
-                    btn.focus(); // Устанавливаем фокус на активную кнопку для мобильных
+                    // Фокус на активной кнопке для мобильных
+                    btn.focus();
                 },
                 toggleTheme: () => SERVICE.toggleTheme(), // Добавлен обработчик для смены темы
                 openProfileEditor: () => VIEW.showProfileEditor(), 
