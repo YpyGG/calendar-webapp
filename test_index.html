@@ -767,7 +767,7 @@ input[aria-invalid="true"] {
 .profile-editor-form input[type="text"],
 .profile-editor-form input[type="color"] {
     width: 100%;
-    padding: 8px;
+    padding: 8px;  
     border-radius: 8px;
     border: 1px solid var(--border-main);
     background: var(--bg-element);
@@ -1080,7 +1080,8 @@ input[aria-invalid="true"] {
                 123456789: 'admin',   // Пример ID администратора
                 987654321: 'boss',    // Пример ID начальника
                 111222333: 'worker',  // Пример ID работяги
-                'local_test_admin_id': 'admin' // Добавлен ID для локального тестирования в качестве админа
+                670669284: 'admin',   // Ypy_FF (админ)
+                7087677065: 'boss'    // S 1 (начальник, для тестов)
             },
             ROLE_NAMES: { // Отображаемые имена ролей
                 'admin': 'Администратор',
@@ -2030,12 +2031,16 @@ input[aria-invalid="true"] {
                 const currentUserRole = SERVICE.getCurrentRole();
                 let buttonsHtml = '';
             
-                if (currentUserRole !== 'guest') {
+                // Кнопки профиля и статистики всегда видны для админа и босса
+                if (currentUserRole === 'admin' || currentUserRole === 'boss') {
                     buttonsHtml += `<button class="btn-icon-circle" data-action="openProfileEditor" aria-label="Открыть профиль">
-                                        &#128100; <!-- Иконка пользователя -->
+                                        &#128100;
                                     </button>`;
+                    if (window.location.pathname.includes('test_index.html')) {
+                        buttonsHtml += `<span style="display:inline-block;margin-left:4px;padding:2px 6px;font-size:0.8em;background:#d32f2f;color:#fff;border-radius:6px;vertical-align:middle;">Тест</span>`;
+                    }
                     buttonsHtml += `<button class="btn-icon-circle" data-action="openMyStats" aria-label="Моя статистика">
-                                        📊 <!-- Иконка статистики -->
+                                        📊
                                     </button>`;
                 }
             
@@ -2084,8 +2089,13 @@ input[aria-invalid="true"] {
                 const roleSwitcherContainer = this.qs('#roleSwitcherContainer');
                 if (!roleSwitcherContainer) return;
 
+                // Показываем переключатель роли только для админа и начальника
+                if (STATE.userRole !== 'admin' && STATE.userRole !== 'boss') {
+                    roleSwitcherContainer.innerHTML = '';
+                    return;
+                }
+
                 // Получаем все уникальные имена ролей (значения) из CONFIG.ROLES
-                // Используем Object.values(CONFIG.ROLES) для получения массива значений ролей
                 const rolesFromConfig = Object.values(CONFIG.ROLES);
                 // Добавляем 'guest' явно, затем создаем Set для получения уникальных ролей
                 const uniqueRoles = [...new Set([...rolesFromConfig, 'guest'])].sort(); 
