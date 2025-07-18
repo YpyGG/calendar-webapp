@@ -1,0 +1,3547 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <!-- ИСПРАВЛЕНИЕ: Удален user-scalable=no для улучшения доступности и масштабирования -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Календарь дежурств — Локальная версия</title>
+    <!-- Content Security Policy для предотвращения XSS-атак и разрешения data:URI для изображений -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline' https://telegram.org https://cdnjs.cloudflare.com https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline';">
+    <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
+    <!-- DOMPurify для санитизации пользовательского ввода -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+    <!-- PWA Manifest Link -->
+    <!-- ПРИМЕЧАНИЕ: manifest.json должен быть доступен по HTTP, а не через file:// протокол, чтобы избежать CORS-ошибок. -->
+    <!-- Запускайте локальный сервер (например, npx http-server .) -->
+    <link rel="manifest" href="/manifest.json">
+    <!-- Web Vitals для аналитики производительности -->
+    <script src="https://unpkg.com/web-vitals@3.5.2/dist/web-vitals.attribution.umd.js"></script>
+    <!-- Подключение iro.js для color picker -->
+    <script src="https://cdn.jsdelivr.net/npm/@jaames/iro@5.5.3/dist/iro.min.js"></script>
+    <style>
+/* --- Общие переменные и сброс стилей --- */
+:root {
+    --bg-main: #1a1a2e; /* Основной фон */
+    --bg-container: #0f3460; /* Фон контейнеров */
+    --bg-element: #2d3748; /* Фон элементов */
+    --bg-element-hover: #4a5568; /* Фон элементов при наведении */
+    --bg-accent: #533483; /* Акцентный фон */
+    --bg-weekend: #3d2a45; /* Фон выходных дней */
+    --text-main: #e0e6ed; /* Основной цвет текста */
+    --text-light: #ffffff; /* Светлый текст */
+    --border-main: #4a5568; /* Основной цвет границ */
+    --border-accent: #00bfff; /* Акцентный цвет границ */
+    --btn-green: #059669; /* Зеленая кнопка */
+    --btn-green-hover: #047857; /* Зеленая кнопка при наведении */
+    --btn-red: #dc2626; /* Красная кнопка */
+    --btn-red-hover: #b91c1c; /* Красная кнопка при наведении */
+    --btn-blue: #2563eb; /* Синяя кнопка */
+    --btn-blue-hover: #1d4ed8; /* Синяя кнопка при наведении */
+    --shadow-main: rgba(0,0,0,0.3); /* Основная тень */
+    --shadow-accent: rgba(0, 191, 255, 0.5); /* Акцентная тень */
+    --font-size-xs: 8px; --font-size-sm: 10px; --font-size-md: 12px;
+    --font-size-lg: 14px; --font-size-xl: 16px; --font-size-xxl: 20px;
+}
+
+/* Темная тема */
+[data-theme="dark"] {
+    --bg-main: #1a1a2e;
+    --bg-container: #0f3460;
+    --bg-element: #2d3748;
+    --bg-element-hover: #4a5568;
+    --bg-accent: #533483;
+    --bg-weekend: #3d2a45;
+    --text-main: #e0e6ed;
+    --text-light: #ffffff;
+    --border-main: #4a5568;
+    --border-accent: #00bfff;
+    --btn-green: #059669;
+    --btn-green-hover: #047857;
+    --btn-red: #dc2626;
+    --btn-red-hover: #b91c1c;
+    --btn-blue: #2563eb;
+    --btn-blue-hover: #1d4ed8;
+    --shadow-main: rgba(0,0,0,0.3);
+    --shadow-accent: rgba(0, 191, 255, 0.5);
+}
+
+/* Светлая тема */
+[data-theme="light"] {
+    --bg-main: #f0f2f5;
+    --bg-container: #ffffff;
+    --bg-element: #e0e2e5;
+    --bg-element-hover: #d0d2d5;
+    --bg-accent: #6a1b9a;
+    --bg-weekend: #fce4ec;
+    --text-main: #333333;
+    --text-light: #ffffff;
+    --border-main: #cccccc;
+    --border-accent: #007bff;
+    --btn-green: #28a745;
+    --btn-green-hover: #218838;
+    --btn-red: #dc3545;
+    --btn-red-hover: #c82333;
+    --btn-blue: #007bff;
+    --btn-blue-hover: #0056b3;
+    --shadow-main: rgba(0,0,0,0.1);
+    --shadow-accent: rgba(0, 123, 255, 0.3);
+}
+
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--bg-main);
+    min-height: 100vh;
+    padding: 10px;
+    color: var(--text-main);
+    display: flex;
+    justify-content: center;
+    align-items: flex-start; /* Изменено на flex-start, чтобы контент не центрировался по вертикали */
+    overflow-y: auto; /* Для прокрутки, если контент не помещается */
+}
+.container {
+    max-width: 1200px;
+    width: 100%;
+    margin: 0 auto;
+    background: var(--bg-container);
+    border-radius: 20px;
+    box-shadow: 0 20px 40px var(--shadow-main);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - 20px); /* Чтобы контейнер занимал почти всю высоту */
+}
+.unauthorized { text-align: center; padding: 50px; }
+.unauthorized h1 { color: var(--btn-red); }
+.unauthorized p { line-height: 1.6; }
+
+/* --- Header --- */
+.header {
+    background: linear-gradient(135deg, var(--bg-accent) 0%, var(--bg-container) 100%);
+    color: var(--text-light);
+    padding: 15px;
+    text-align: center;
+    border-bottom: 1px solid var(--border-main);
+    position: relative; /* Для позиционирования кнопки смены темы */
+}
+.user-info { font-size: 0.9em; opacity: 0.9; margin-bottom: 10px; }
+.user-info span { font-weight: bold; }
+.header h1 { 
+    font-size: 1.8em; 
+    font-weight: 300; 
+    margin-bottom: 15px; 
+    text-wrap: balance; /* Автобалансировка текста */
+}
+.role-switcher { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; justify-content: center; }
+.role-switcher label { font-size: 0.9em; opacity: 0.9; }
+/* Общие стили для всех select элементов */
+.month-year-selectors select, .month-selector, .role-select {
+    background: var(--bg-element);
+    color: var(--text-main); /* Изменено на text-main для светлой темы */
+    border: 1px solid var(--border-main);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 14px;
+    cursor: pointer;
+    appearance: none;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="%23e0e6ed" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>');
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 12px;
+}
+[data-theme="light"] .month-year-selectors select,
+[data-theme="light"] .month-selector,
+[data-theme="light"] .role-select {
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="%23333333" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>');
+}
+
+.month-year-selectors select:focus, .month-selector:focus, .role-select:focus {
+    outline: none; border-color: var(--border-accent); box-shadow: 0 0 0 2px var(--shadow-accent);
+}
+.month-year-selectors { display: flex; justify-content: center; gap: 10px; }
+
+
+/* --- Buttons --- */
+.btn {
+    padding: 10px 18px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    font-size: var(--font-size-lg);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+    box-shadow: 0 2px 5px var(--shadow-main);
+    color: var(--text-light);
+    text-decoration: none; /* Для кнопок-ссылок */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;   /* удобнее пальцем */
+    min-height: 48px;
+}
+.btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 8px var(--shadow-main); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn--save { background: var(--btn-green); } .btn--save:hover:not(:disabled) { background: var(--btn-green-hover); }
+.btn--clear { background: var(--btn-red); } .btn--clear:hover:not(:disabled) { background: var(--btn-red-hover); }
+.btn--cancel { background: var(--bg-element-hover); }
+.btn--edit-mode { background: var(--btn-blue); color: var(--text-light); }
+/* Новые стили для активной кнопки редактирования */
+.btn--edit-mode.active-edit-mode {
+    background: var(--btn-green); /* Зеленый фон */
+    border: 2px solid var(--border-accent); /* Синяя рамка */
+    box-shadow: 0 0 8px var(--shadow-accent); /* Синяя тень */
+}
+.btn--blue { background: var(--btn-blue); } .btn--blue:hover:not(:disabled) { background: var(--btn-blue-hover); }
+.btn--toggle { width: 100%; margin-top: 10px; background: var(--bg-element); color: var(--text-main); }
+/* Кнопка смены темы */
+.theme-toggle-btn {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: var(--bg-element);
+    color: var(--text-main);
+    border: 1px solid var(--border-main);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1.2em;
+    box-shadow: 0 2px 5px var(--shadow-main);
+    transition: background 0.2s, color 0.2s, transform 0.2s;
+}
+.theme-toggle-btn:hover {
+    transform: rotate(15deg);
+    background: var(--bg-element-hover);
+}
+/* Контейнер для кнопок профиля и статистики */
+.top-controls-group {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    display: flex;
+    gap: 10px; /* Расстояние между кнопками */
+}
+.top-controls-group .btn-icon-circle {
+    background: var(--bg-element);
+    color: var(--text-main);
+    border: 1px solid var(--border-main);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1.2em;
+    box-shadow: 0 2px 5px var(--shadow-main);
+    transition: background 0.2s, color 0.2s, transform 0.2s;
+}
+.top-controls-group .btn-icon-circle:hover {
+    transform: scale(1.1);
+    background: var(--bg-element-hover);
+}
+
+
+.btn--small { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
+
+/* --- Main Content --- */
+.main-content { padding: 15px; flex-grow: 1; display: flex; flex-direction: column; }
+.section-container { background: var(--bg-main); border-radius: 15px; padding: 15px; border: 1px solid var(--border-main); margin-bottom: 15px; }
+.hidden-section { display: none; }
+/* Добавлено новое правило для скрытия элементов */
+.hidden {
+    display: none !important; 
+}
+
+/* --- Tabs --- */
+.tab-navigation { display: flex; justify-content: center; margin-bottom: 15px; gap: 10px; flex-wrap: wrap; }
+.tab-button { background: var(--bg-element-hover); color: var(--text-main); }
+.tab-button.active { background: var(--bg-accent); box-shadow: 0 0 10px var(--shadow-accent); color: var(--text-light); }
+.tab-content { display: none; } .tab-content.active { display: block; }
+
+/* --- Calendar Grid --- */
+.calendar-grid { 
+    display: grid; 
+    grid-template-columns: repeat(7, 1fr); 
+    grid-auto-rows: minmax(80px, auto); /* Автоматическая высота строк */
+    gap: 2px; 
+}
+.day-header { text-align: center; font-weight: 600; padding: 8px 4px; font-size: var(--font-size-md); }
+.day-cell {
+    background: var(--bg-element);
+    padding: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border-radius: 8px;
+    min-height: 80px;
+    border: 1px solid transparent;
+    position: relative; /* Для позиционирования элементов внутри */
+    /* ИСПРАВЛЕНИЕ: Удалено container-type, так как @container не поддерживается повсеместно */
+    /* container-type: inline-size; */ 
+}
+.day-cell:hover:not(.empty) { 
+    background: var(--bg-element-hover); 
+    border-color: var(--border-accent); 
+    box-shadow: 0 0 8px rgba(0, 191, 255, 0.3); 
+    transform: scale(1.02); /* Микровзаимодействие */
+}
+.day-cell.weekend { background: var(--bg-weekend); }
+.day-cell.current-day { border: 2px solid var(--border-accent); }
+.day-number { font-weight: 700; font-size: var(--font-size-xl); position: absolute; top: 4px; left: 4px; } /* Увеличен шрифт и жирность */
+.day-entries-container { 
+    display: flex; 
+    flex-wrap: wrap; 
+    gap: 1px; 
+    justify-content: center; 
+    align-items: center; 
+    flex-grow: 1; 
+    padding-top: 20px; /* Отступ для номера дня */ 
+}
+
+/* ИСПРАВЛЕНИЕ: Удален @container блок, так как он не поддерживается повсеместно */
+/* @container (min-width: 120px) {
+  .day-entries-container .avatar {
+    width: clamp(30px, 8vw, 50px);
+    height: clamp(30px, 8vw, 50px);
+  }
+} */
+
+/* --- Avatars / Day Entries --- */
+/* Общие стили для аватара */
+.avatar {
+    position: relative;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 0 8px var(--outline, rgba(0, 191, 255, 0.4)); /* Используем CSS-переменную для обводки */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    margin: 2px 0;
+    line-height: 1.1;
+    text-align: center;
+    transition: all 0.2s ease-in-out;
+    flex-shrink: 0;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    background-color: var(--bg, #ccc); /* Используем CSS-переменную для фона */
+    color: var(--text, #fff); /* Используем CSS-переменную для цвета текста */
+    overflow: hidden; /* Обрезаем содержимое, если оно выходит за границы */
+}
+
+/* Размеры аватаров в зависимости от количества назначений */
+.day-entries-container .avatar {
+    width: clamp(35px, 10vw, 60px); /* По умолчанию для одного */
+    height: clamp(35px, 10vw, 60px);
+}
+.day-entries-container .avatar.avatar-two {
+    width: clamp(25px, 7vw, 45px);
+    height: clamp(25px, 7vw, 45px);
+}
+.day-entries-container .avatar.avatar-multiple {
+    width: clamp(18px, 5vw, 36px);
+    height: clamp(18px, 5vw, 36px);
+}
+
+.avatar-photo {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    position: absolute; /* Чтобы аксессуары могли быть поверх */
+    top: 0;
+    left: 0;
+}
+
+.avatar-letters { font-weight: 700; line-height: 1.1; font-size: 1.1em; z-index: 1;} /* Жирнее и чуть больше */
+.avatar-shift { font-weight: 600; opacity: 0.9; margin-top: 2px; line-height: 1.1; font-size: 0.9em; z-index: 1;} /* Жирнее и чуть больше */
+
+.avatar.empty { background-color: transparent !important; box-shadow: none !important; border: none !important; cursor: default; }
+
+/* Styles for accessories */
+.accessory {
+    position: absolute;
+    width: 50%; /* Относительно размера аватара */
+    height: 50%;
+    pointer-events: none; /* Не мешает кликам */
+    z-index: 2; /* Поверх фото/инициалов */
+}
+.accessory.crown { top: 0%; left: 25%; width: 60%; height: 60%; } /* Корона сверху */
+.accessory.tie { bottom: 0%; left: 25%; width: 50%; height: 50%; } /* Галстук снизу */
+.accessory.horns { top: 0%; left: 15%; width: 70%; height: 70%; } /* Рожки сверху */
+.accessory.medal { bottom: 0%; left: 25%; width: 50%; height: 50%; } /* Медаль снизу */
+.accessory.halo { top: -10%; left: 15%; width: 70%; height: 70%; } /* Нимб сверху */
+.accessory.glow { top: 0%; left: 0%; width: 100%; height: 100%; filter: blur(5px); opacity: 0.7; } /* Сияние вокруг */
+
+
+/* --- Statistics --- */
+.stats-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.stats-item { display: flex; justify-content: space-between; align-items: center; background: var(--bg-element); padding: 5px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+.stats-name { padding: 5px 8px; border-radius: 6px; font-weight: 600; }
+.stats-count { font-size: 1.2em; font-weight: bold; color: var(--border-accent); padding: 0 8px; }
+
+/* --- Management Section --- */
+.management-section { margin-bottom: 20px; }
+.management-section h4 { margin-bottom: 10px; border-bottom: 1px solid var(--border-main); padding-bottom: 5px; color: var(--border-accent); }
+.officer-management-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+    align-items: flex-start; /* Выравнивание элементов по верху */
+}
+.officer-management-controls input {
+    flex-grow: 1;
+    background: var(--bg-element);
+    border: 1px solid var(--border-main);
+    border-radius: 8px;
+    padding: 10px;
+    color: var(--text-main); /* Изменено на text-main для светлой темы */
+    min-width: 150px;
+}
+.officer-management-controls input:focus { outline: none; border-color: var(--border-accent); box-shadow: 0 0 0 2px var(--shadow-accent); }
+
+.current-officers-list, .pending-users-list {
+    background: var(--bg-element);
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 15px;
+    box-shadow: inset 0 0 5px rgba(0,0,0,0.2);
+}
+.current-officer-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-main);
+    color: var(--text-main); /* Добавлено для светлой темы */
+}
+.current-officer-item:last-child { border-bottom: none; }
+.officer-actions { display: flex; gap: 10px; align-items: center; }
+.role-selector {
+    background: var(--bg-main);
+    color: var(--text-main); /* Изменено на text-main для светлой темы */
+    border: 1px solid var(--border-main);
+    border-radius: 6px;
+    padding: 5px;
+    appearance: none;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="%23e0e6ed" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>');
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 10px;
+}
+[data-theme="light"] .role-selector {
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="%23333333" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>');
+}
+.role-selector:focus { outline: none; border-color: var(--border-accent); box-shadow: 0 0 0 2px var(--shadow-accent); }
+.delete-officer-btn {
+    background: var(--btn-red);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    min-width: 28px; /* Для мобильных */
+    min-height: 28px; /* Для мобильных */
+    font-size: 1.2em;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+.delete-officer-btn:hover:not(:disabled) { background: var(--btn-red-hover); }
+.pending-users-list p { text-align: center; opacity: 0.7; padding: 10px; }
+
+/* --- Action Buttons Wrapper --- */
+.action-buttons-wrapper { display: flex; justify-content: center; gap: 10px; margin: 15px 0; flex-wrap: wrap; }
+
+/* --- Modals --- */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.7);
+    display: flex; /* Изменено на flex для центрирования */
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    padding: 15px;
+    backdrop-filter: blur(5px); /* Эффект размытия */
+    opacity: 0;
+    pointer-events: none; /* Скрыто по умолчанию и не реагирует на события */
+    transition: opacity 0.3s ease-in-out;
+}
+.modal-overlay.show {
+    opacity: 1;
+    pointer-events: auto; /* Показывается и реагирует на события */
+}
+.modal {
+    background: var(--bg-container);
+    border-radius: 15px;
+    padding: 20px;
+    width: 100%;
+    max-width: 500px;
+    box-shadow: 0 5px 20px var(--shadow-main);
+    border: 1px solid var(--border-accent);
+    transform: translateY(-20px);
+    opacity: 0;
+    transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+    color: var(--text-main); /* Добавлено для светлой темы */
+}
+.modal-overlay.show .modal {
+    transform: translateY(0);
+    opacity: 1;
+}
+.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+.modal-header h4 { font-size: 1.2em; color: var(--text-main); } /* Изменено на text-main */
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-main); /* Изменено на text-main */
+    font-size: 1.8em;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+.modal-close:hover { color: var(--btn-red); }
+.modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+/* --- Officer List in Duty Modal --- */
+.officer-list {
+    display: flex; /* Изменено на flex для лучшей адаптивности */
+    flex-wrap: wrap; /* Разрешить перенос на новую строку */
+    gap: 12px; /* Уменьшен зазор */
+    justify-content: center;
+    margin: 20px 0 0 0;
+}
+.officer-option.btn.officer-colored-btn,
+.officer-option.btn.no-duty-btn {
+    border-radius: 50px;
+    min-width: 100px; /* Уменьшен min-width */
+    min-height: 40px; /* Уменьшен min-height */
+    font-size: 1em; /* Уменьшен размер шрифта */
+    font-weight: 600;
+    margin: 0;
+    border: none;
+    transition: box-shadow 0.2s, filter 0.2s, transform 0.2s;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    outline: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.officer-option.btn.officer-colored-btn:hover { filter: brightness(1.1) saturate(1.2); box-shadow: 0 0 16px rgba(0,0,0,0.3); transform: translateY(-2px); }
+.officer-option.btn.selected { outline: 2px solid var(--border-accent); box-shadow: 0 0 12px var(--shadow-accent); transform: scale(1.05); }
+.officer-option.btn.no-duty-btn { background: #444; color: #fff; }
+.officer-option.btn.no-duty-btn:hover { background: #666; transform: translateY(-2px); }
+
+/* --- Assignment Modal Controls --- */
+.assignment-controls { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+.assignment-controls select {
+    flex-grow: 1;
+    background: var(--bg-element);
+    color: var(--text-main); /* Изменено на text-main */
+    border-radius: 8px;
+    padding: 10px;
+    border: 1px solid var(--border-main);
+    appearance: none;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="%23e0e6ed" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>');
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 12px;
+}
+[data-theme="light"] .assignment-controls select {
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="%23333333" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>');
+}
+.assignment-controls select:focus { outline: none; border-color: var(--border-accent); box-shadow: 0 0 0 2px var(--shadow-accent); }
+.assignments-list-container h5 { margin-bottom: 8px; color: var(--border-accent); }
+.assignment-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    background: var(--bg-element);
+    border-radius: 8px;
+    margin-bottom: 5px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    color: var(--text-main); /* Добавлено для светлой темы */
+}
+.assignment-item span { font-weight: 500; }
+.delete-assignment-btn {
+    background: var(--btn-red);
+    color: white;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    min-width: 24px; /* Для мобильных */
+    min-height: 24px; /* Для мобильных */
+    border: none;
+    cursor: pointer;
+    font-size: 1.1em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+.delete-assignment-btn:hover { background: var(--btn-red-hover); }
+
+/* --- Enlarged Day View --- */
+.enlarged-day-content {
+    padding: 10px;
+    max-height: 70vh; /* Ограничение высоты */
+    overflow-y: auto; /* Прокрутка, если контент не помещается */
+}
+.enlarged-day-content .warning-message {
+    background: #f44336;
+    color: #fff;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    font-weight: bold;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.enlarged-day-content .enlarged-day-title {
+    margin: 15px 0 8px 0;
+    font-weight: bold;
+    color: var(--border-accent);
+    font-size: 1.2em;
+}
+.enlarged-day-assignment {
+    padding: 10px 15px;
+    border-radius: 8px;
+    margin: 8px 0;
+    font-weight: 600; /* Сделал жирнее */
+    font-size: 1.2em; /* Чуть больше шрифт */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.enlarged-day-assignment:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
+.enlarged-day-content .no-assignments-message {
+    text-align: center;
+    padding: 20px;
+    opacity: 0.7;
+    font-style: italic;
+}
+
+/* --- Notifications --- */
+#toastContainer {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+    max-width: 90%; /* Ensure it doesn't go off screen on small devices */
+}
+.toast { /* Renamed from .notification */
+    background: var(--bg-element);
+    color: white;
+    padding: 15px 25px;
+    border-radius: 12px;
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    min-width: 250px;
+    text-align: center;
+    transform: translateY(20px); /* Start slightly off screen */
+}
+.toast.show { opacity: 1; transform: translateY(0); } /* Slide up when shown */
+.toast.success { background: var(--btn-green); }
+.toast.error { background: var(--btn-red); }
+.toast.info { background: var(--btn-blue); }
+
+/* Validation message specific styles */
+.validation-message {
+    color: var(--btn-red); /* Красный цвет для сообщений об ошибках */
+    font-size: 0.85em;
+    margin-top: 5px;
+    display: block; /* Гарантирует, что занимает отдельную строку */
+    min-height: 1em; /* Резервирует место для предотвращения сдвигов макета */
+    visibility: hidden; /* Скрыто по умолчанию */
+    opacity: 0;
+    transition: visibility 0s, opacity 0.3s ease-in-out;
+    order: 10; /* Помещает сообщение об ошибке под кнопкой */
+    width: 100%; /* Занимает всю ширину */
+}
+
+.validation-message.show {
+    visibility: visible;
+    opacity: 1;
+}
+
+input[aria-invalid="true"] {
+    border-color: var(--btn-red);
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.5);
+}
+
+/* Profile Modal Specific Styles */
+.profile-modal-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    padding: 10px;
+}
+.profile-avatar-display { /* Для отображения аватара в самом профиле */
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background-color: var(--bg-element-hover);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3em;
+    color: var(--text-main);
+    border: 3px solid var(--border-accent);
+    box-shadow: 0 0 15px var(--shadow-accent);
+    overflow: hidden; /* Для изображений профиля */
+    position: relative;
+}
+.profile-avatar-display img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.profile-info h3 {
+    font-size: 1.8em;
+    margin-bottom: 5px;
+    color: var(--text-light);
+    text-align: center;
+}
+.profile-info p {
+    font-size: 1.1em;
+    color: var(--text-main);
+    text-align: center;
+}
+.profile-stats {
+    width: 100%;
+    background: var(--bg-element);
+    border-radius: 10px;
+    padding: 15px;
+    box-shadow: inset 0 0 8px rgba(0,0,0,0.2);
+}
+.profile-stats h4 {
+    color: var(--border-accent);
+    margin-bottom: 10px;
+    text-align: center;
+}
+.profile-stats ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.profile-stats li {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-main);
+}
+.profile-stats li:last-child {
+    border-bottom: none;
+}
+.profile-stats span:first-child {
+    font-weight: 500;
+}
+.profile-stats span:last-child {
+    font-weight: bold;
+    color: var(--text-light);
+}
+
+/* Profile Editor Form Styles */
+.profile-editor-form label {
+    display: block;
+    margin: 10px 0 5px;
+    font-weight: 500;
+    color: var(--text-main);
+}
+.profile-editor-form input[type="text"],
+.profile-editor-form input[type="color"] {
+    width: 100%;
+    padding: 8px;  
+    border-radius: 8px;
+    border: 1px solid var(--border-main);
+    background: var(--bg-element);
+    color: var(--text-main);
+}
+.profile-editor-form input[type="text"]:focus,
+.profile-editor-form input[type="color"]:focus {
+    outline: none;
+    border-color: var(--border-accent);
+    box-shadow: 0 0 0 2px var(--shadow-accent);
+}
+.profile-editor-form fieldset {
+    border: 1px solid var(--border-main);
+    border-radius: 10px;
+    padding: 10px;
+    margin-top: 15px;
+}
+.profile-editor-form legend {
+    color: var(--border-accent);
+    font-weight: bold;
+    padding: 0 5px;
+}
+.profile-editor-form .accessories-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 10px;
+}
+.profile-editor-form .accessories-grid label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    background: var(--bg-element);
+    padding: 8px 12px;
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+.profile-editor-form .accessories-grid label:hover {
+    background: var(--bg-element-hover);
+}
+.profile-editor-form .accessories-grid input[type="checkbox"] {
+    margin-right: 5px;
+    width: auto; /* Сброс 100% ширины */
+}
+.profile-editor-form .modal-footer {
+    justify-content: center;
+    margin-top: 20px;
+}
+
+/* Stats Modal Specific Styles */
+.stats-modal-content {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    padding: 10px;
+}
+.stats-modal-content h3 {
+    font-size: 1.6em;
+    color: var(--border-accent);
+    text-align: center;
+    margin-bottom: 10px;
+}
+.stats-modal-content p {
+    font-size: 1.1em;
+    text-align: center;
+    margin-bottom: 10px;
+}
+.stats-modal-content ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 300px; /* Ограничение высоты для списка смен */
+    overflow-y: auto; /* Прокрутка, если список длинный */
+    background: var(--bg-element);
+    border-radius: 10px;
+    padding: 10px;
+    box-shadow: inset 0 0 8px rgba(0,0,0,0.2);
+}
+.stats-modal-content li {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-main);
+    font-size: 0.95em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.stats-modal-content li:last-child {
+    border-bottom: none;
+}
+.stats-modal-content li span:first-child {
+    font-weight: 500;
+}
+.stats-modal-content li span:last-child {
+    font-weight: bold;
+    color: var(--text-light);
+}
+
+
+/* --- Responsive adjustments --- */
+@media (max-width: 768px) {
+    .container {
+        margin: 0;
+        border-radius: 0;
+        min-height: 100vh;
+        padding: 0;
+    }
+    body { padding: 0; align-items: stretch; }
+    .header { padding: 10px; }
+    .header h1 { font-size: 1.5em; margin-bottom: 10px; }
+    .role-switcher, .month-year-selectors, .tab-navigation, .officer-management-controls, .action-buttons-wrapper, .assignment-controls {
+        flex-direction: column;
+        gap: 8px;
+    }
+    .month-year-selectors select, .btn, .officer-management-controls input, .assignment-controls select, .role-select {
+        width: 100%;
+    }
+    .day-cell { min-height: 60px; }
+    .day-number { font-size: var(--font-size-md); }
+    /* Аватары в календаре на мобильных */
+    .day-entries-container .avatar { width: 45px; height: 45px; }
+    .day-entries-container .avatar.avatar-two { width: 35px; height: 35px; }
+    .day-entries-container .avatar.avatar-multiple { width: 28px; height: 28px; }
+
+    .avatar.avatar-single .avatar-letters { font-size: 1.5em; }
+    .avatar.avatar-single .avatar-shift { font-size: 0.7em; }
+    .avatar.avatar-two .avatar-letters { font-size: 1.2em; }
+    .avatar.avatar-two .avatar-shift { font-size: 0.5em; }
+    .avatar.avatar-multiple .avatar-letters { font-size: 0.8em; }
+    .avatar.avatar-multiple .avatar-shift { font-size: 0.4em; }
+
+    .stats-list { grid-template-columns: 1fr; }
+    .officer-option.btn.officer-colored-btn, .officer-option.btn.no-duty-btn {
+        min-width: 100%;
+    }
+    .theme-toggle-btn {
+        width: 35px;
+        height: 35px;
+        font-size: 1em;
+        right: 10px; top: 10px;
+    }
+    .top-controls-group {
+        left: 10px; top: 10px;
+        gap: 8px;
+    }
+    .top-controls-group .btn-icon-circle {
+        width: 35px;
+        height: 35px;
+        font-size: 1em;
+    }
+}
+@media (max-width: 600px) {
+    .header {
+        padding: 4px 2px;
+    }
+    .month-year-selectors {
+        gap: 2px;
+        margin-bottom: 4px;
+    }
+    .month-year-selectors select {
+        min-width: 54px;
+        font-size: 0.8em;
+        padding: 1px 2px;
+    }
+    .tab-navigation {
+        gap: 2px;
+        margin-bottom: 4px;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+    .tab-navigation::-webkit-scrollbar { display: none; }
+    .tab-button {
+        min-width: 70px;
+        font-size: 0.85em;
+        padding: 4px 0;
+        flex: 0 0 auto;
+    }
+    .top-controls-group {
+        left: 2px;
+        top: 2px;
+        gap: 2px;
+    }
+    .top-controls-group .btn-icon-circle {
+        width: 28px;
+        height: 28px;
+        font-size: 0.9em;
+    }
+}
+
+/* Доступность: фокус-стили для всех интерактивных элементов */
+button:focus-visible, .tab-button:focus-visible, select:focus-visible {
+    outline: 2px solid #00bfff;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px #00bfff33;
+    z-index: 2;
+}
+
+/* Минимальные размеры для кликабельных элементов */
+button, .tab-button, .btn-icon-circle {
+    min-width: 44px;
+    min-height: 44px;
+}
+
+@media (max-width: 600px) {
+    button, .tab-button, .btn-icon-circle {
+        min-width: 44px;
+        min-height: 44px;
+        font-size: 0.95em;
+    }
+}
+
+.profile-edit-container {
+    padding: 16px;
+    max-width: 100%;
+}
+.profile-field {
+    margin-bottom: 24px;
+    min-height: 44px;
+}
+.profile-field label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 8px;
+    color: var(--tg-theme-text-color, #222);
+}
+.profile-field input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid var(--tg-theme-hint-color, #ccc);
+    border-radius: 8px;
+    font-size: 16px;
+    background: var(--tg-theme-bg-color, #fff);
+    color: var(--tg-theme-text-color, #222);
+}
+.avatar-upload-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 20px;
+}
+.avatar-preview {
+    position: relative;
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #eee;
+    margin-bottom: 8px;
+}
+.avatar-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+.avatar-overlay {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: rgba(0,0,0,0.4);
+    text-align: center;
+    padding: 4px 0;
+}
+.upload-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 1.1em;
+    cursor: pointer;
+}
+@media (min-width: 768px) {
+    .profile-edit-container { max-width: 400px; margin: 0 auto; }
+}
+
+.profile-card {
+    max-width: 96vw;
+    width: 320px;
+    padding: 16px;
+    margin: 0 auto;
+    border-radius: 12px;
+    box-shadow: 0 0 8px #0001;
+    background: var(--tg-theme-bg-color, #fff);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+@media (max-width: 480px) {
+  .profile-card { width: 98vw; padding: 8px; }
+}
+.avatar-block {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.avatar-image {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #f3f3f3;
+  box-shadow: 0 0 16px 2px var(--glow-color, #4C76DF);
+  transition: box-shadow 0.2s;
+}
+.avatar-edit-btn {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 8px #0001;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: -20px;
+  z-index: 2;
+}
+.avatar-edit-btn img {
+  width: 24px;
+  height: 24px;
+}
+.glow-picker-btn {
+  margin: 0 0 0 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.glow-preview {
+  display: inline-block;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  box-shadow: 0 0 12px 4px var(--glow-color, #4C76DF);
+  background: var(--glow-color, #4C76DF);
+  transition: box-shadow 0.2s, background 0.2s;
+  border: 2px solid #fff;
+}
+.glow-label {
+  font-size: 13px;
+  color: #666;
+  margin-top: 2px;
+  text-align: center;
+}
+.fallback-palette {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  justify-content: center;
+}
+.fallback-color {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 6px #0002;
+  cursor: pointer;
+  outline: none;
+}
+.fallback-color:focus { box-shadow: 0 0 0 2px #4C76DF; }
+.profile-error {
+  color: #d32f2f;
+  font-size: 13px;
+  margin-top: 4px;
+  min-height: 18px;
+  text-align: center;
+}
+.btn, .avatar-edit-btn, .glow-picker-btn, .fallback-color {
+  outline: none;
+}
+.btn:focus, .avatar-edit-btn:focus, .glow-picker-btn:focus, .fallback-color:focus {
+  box-shadow: 0 0 0 2px #4C76DF;
+}
+.profile-header { display: flex; align-items: center; margin-bottom: 24px; }
+.avatar-container { position: relative; margin-right: 16px; }
+.avatar-image { width: 64px; height: 64px; border-radius: 50%; border: 3px solid #4C76DF; object-fit: cover; }
+.avatar-edit-btn { position: absolute; bottom: -4px; right: -4px; width: 24px; height: 24px; border-radius: 50%; background: #4C76DF; color: white; border: none; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.profile-info { flex: 1; }
+.profile-name { margin: 0 0 4px 0; font-size: 18px; font-weight: 600; color: var(--text-color); }
+.profile-role { color: #666; font-size: 14px; }
+.field-group { margin-bottom: 20px; }
+.field-group label { display: block; font-weight: 500; margin-bottom: 8px; color: var(--text-color); }
+.input-group { display: flex; align-items: center; gap: 8px; }
+.field-input { flex: 1; padding: 10px 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; background: var(--bg-color); color: var(--text-color); transition: border-color 0.3s; }
+.field-input:focus { border-color: #4C76DF; outline: none; }
+.field-edit-btn { width: 36px; height: 36px; border: none; background: #f0f0f0; border-radius: 6px; cursor: pointer; font-size: 16px; transition: background-color 0.3s; }
+.field-edit-btn:hover { background: #e0e0e0; }
+.field-hint { color: #666; font-size: 12px; margin-top: 4px; }
+.color-picker-wrapper { display: flex; align-items: center; gap: 12px; }
+.color-preview { width: 32px; height: 32px; border-radius: 50%; border: 2px solid #e0e0e0; cursor: pointer; transition: transform 0.2s; }
+.color-preview:hover { transform: scale(1.1); }
+.color-picker-btn { padding: 8px 16px; border: 2px solid #4C76DF; background: transparent; color: #4C76DF; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.3s; }
+.color-picker-btn:hover { background: #4C76DF; color: white; }
+.decorations-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.decoration-item { display: flex; flex-direction: column; align-items: center; padding: 12px; border: 2px solid transparent; border-radius: 8px; cursor: pointer; transition: all 0.3s; text-align: center; }
+.decoration-item:hover { border-color: #4C76DF; background: rgba(76, 118, 223, 0.1); }
+.decoration-item.selected { border-color: #4C76DF; background: #4C76DF; color: white; }
+.decoration-icon { font-size: 24px; margin-bottom: 4px; }
+.decoration-text { font-size: 12px; font-weight: 500; }
+@media (max-width: 480px) { .profile-card { padding: 16px; } .avatar-image { width: 56px; height: 56px; } .decorations-grid { grid-template-columns: repeat(3, 1fr); } }
+
+/* === Минималистичный блок аватара и свечения для профиля === */
+.avatar-block {
+  position: relative;
+  width: 72px;
+  margin: 0 auto 12px auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.avatar-image {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #f3f3f3;
+  box-shadow: 0 0 16px 2px var(--glow-color, #4C76DF);
+  transition: box-shadow 0.2s;
+}
+.avatar-edit-btn {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px #0001;
+  width: 32px;
+  height: 32px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.avatar-edit-btn img {
+  width: 20px;
+  height: 20px;
+}
+.glow-picker-btn {
+  margin: 8px auto 0 auto;
+  display: block;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.glow-preview {
+  display: inline-block;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  box-shadow: 0 0 12px 4px var(--glow-color, #4C76DF);
+  background: var(--glow-color, #4C76DF);
+  transition: box-shadow 0.2s, background 0.2s;
+  border: 2px solid #fff;
+}
+@media (max-width: 600px) {
+  .avatar-block { width: 60px; }
+  .avatar-image { width: 52px; height: 52px; }
+  .avatar-edit-btn { width: 26px; height: 26px; right: -6px; bottom: -6px; }
+  .glow-preview { width: 24px; height: 24px; }
+}
+
+.day-cell.drag-over {
+    outline: 2px dashed var(--border-accent);
+    background: var(--bg-element-hover);
+}
+
+.day-cell.selected-bulk {
+    outline: 2px solid var(--btn-blue);
+    background: var(--bg-element-hover);
+}
+    /* Визуализация загруженности дней */
+    .day-cell.load-1 { background: linear-gradient(135deg, var(--bg-element-hover) 60%, var(--btn-blue) 40%); }
+    .day-cell.load-2 { background: linear-gradient(135deg, var(--bg-element-hover) 40%, var(--btn-blue) 60%); }
+    .day-cell.load-3 { background: linear-gradient(135deg, var(--btn-blue) 70%, var(--btn-green) 30%); }
+    .day-cell.load-4, .day-cell.load-max { background: linear-gradient(135deg, var(--btn-green) 80%, var(--btn-blue) 20%); }
+    </style>
+</head>
+<body data-theme="dark">
+    <!-- Кнопка профиля (удалена фиксированная позиция) -->
+    <!-- <button id="profileBtn" class="btn-icon-circle" aria-label="Профиль" style="position:fixed;top:16px;left:16px;z-index:1001;">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.418 0-8 2.239-8 5v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1c0-2.761-3.582-5-8-5Z" stroke="#4C76DF" stroke-width="2"/></svg>
+    </button> -->
+    <!-- Модальное окно профиля -->
+    <div class="modal-overlay" id="profileModalOverlay" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
+        <div class="modal" id="profileModal">
+            <div class="modal-header">
+                <h4 id="profileModalTitle">Мой профиль</h4>
+                <button class="modal-close" id="closeProfileModal" aria-label="Закрыть окно">&times;</button>
+            </div>
+            <div class="modal-body profile-modal-content" id="profileModalBody">
+                <!-- Контент профиля будет вставлен JS -->
+            </div>
+        </div>
+    </div>
+    <div class="container" id="appContainer">
+        <header class="header">
+            <div class="user-info" id="userInfo"></div>
+            <div id="roleSwitcherContainer"></div>
+            <h1 id="mainCalendarHeading">Календарь дежурств</h1>
+            <div class="month-year-selectors">
+                <select class="month-selector" id="monthSelector" aria-label="Выберите месяц"></select>
+                <select class="year-selector" id="yearSelector" aria-label="Выберите год"></select>
+            </div>
+            <button class="theme-toggle-btn" data-action="toggleTheme" aria-label="Переключить тему">
+                &#9728; <!-- Солнце (светлая тема) / Луна (темная тема) -->
+            </button>
+            <div class="top-controls-group" id="topControls">
+                <!-- Buttons will be rendered here by JS -->
+            </div>
+            <!-- 1. В header или рядом с фильтрами добавляю кнопку: -->
+            <div id="myScheduleFilterWrapper" style="display:flex;justify-content:center;margin-top:10px;">
+              <button class="btn btn--blue" id="toggleMyScheduleFilterBtn" data-action="toggleMyScheduleFilter" aria-pressed="false">Мой график</button>
+              <span id="myScheduleFilterActiveIndicator" style="display:none;margin-left:8px;color:var(--btn-blue);font-weight:bold;">Показаны только мои смены <button id="clearMyScheduleFilterBtn" style="background:none;border:none;color:var(--btn-blue);font-size:1.2em;cursor:pointer;">×</button></span>
+            </div>
+        </header>
+        <!-- ИСПРАВЛЕНИЕ: Удалена избыточная роль "main" -->
+        <main class="main-content" id="appMainContent">
+            <nav class="tab-navigation" id="tabNavigation" aria-label="Главное меню">
+                <button class="tab-button btn" data-action="switchTab" data-tab="duty">График дежурств</button>
+                <button class="tab-button btn" data-action="switchTab" data-tab="technician">График техников</button>
+                <button class="tab-button btn" data-action="switchTab" data-tab="general">Общий график</button>
+            </nav>
+            <!-- ИСПРАВЛЕНИЕ: Заменен section на div, так как это контейнер, а не семантический раздел с собственным заголовком -->
+            <div class="section-container" aria-labelledby="mainCalendarHeading">
+                <div id="dutyTab" class="tab-content" data-calendar-type="duty"><div class="calendar-grid" id="dutyCalendarGrid"></div></div>
+                <div id="technicianTab" class="tab-content" data-calendar-type="technician"><div class="calendar-grid" id="technicianCalendarGrid"></div></div>
+                <div id="generalTab" class="tab-content" data-calendar-type="general"><div class="calendar-grid" id="generalCalendarGrid"></div></div>
+            </div>
+            <!-- Кнопка редактирования теперь над статистикой -->
+            <div id="editModeBtnWrapper" style="display:flex;justify-content:center;margin-top:20px;">
+                <button class="btn btn--edit-mode" id="toggleEditModeBtn" data-action="toggleEditMode" aria-expanded="false">Редактировать</button>
+            </div>
+            <!-- В блоке с кнопкой редактирования (editModeBtnWrapper) добавляю: -->
+            <div id="bulkEditBtnWrapper" style="display:flex;justify-content:center;margin-top:10px;">
+              <button class="btn btn--blue" id="toggleBulkEditModeBtn" data-action="toggleBulkEditMode" aria-pressed="false">Массовое редактирование</button>
+            </div>
+            <!-- Кнопки действий теперь скрыты по умолчанию -->
+            <div class="action-buttons-wrapper hidden" id="actionButtons" style="margin-top: 15px;">
+                <button class="btn btn--save" data-action="save">Сохранить изменения</button>
+                <button class="btn btn--cancel" data-action="cancel">Отменить изменения</button>
+                <button class="btn btn--clear" data-action="clear">Очистить месяц</button>
+            </div>
+            <button class="btn btn--toggle" data-action="toggleSection" data-target="statisticsSection" aria-controls="statisticsSection" aria-expanded="false">Статистика</button>
+            <section class="section-container hidden-section" id="statisticsSection" aria-labelledby="statisticsHeading">
+                <h3 id="statisticsHeading">Статистика дежурств</h3>
+                <div class="stats-list" id="statsList"></div>
+            </section>
+            <button class="btn btn--toggle" data-action="toggleSection" data-target="managementSection" style="margin-top: 10px;" aria-controls="managementSection" aria-expanded="false">Управление</button>
+            <section class="section-container hidden-section" id="managementSection" aria-labelledby="managementHeading">
+                <h3 id="managementHeading">Управление персоналом</h3>
+                <div class="officer-management-controls">
+                    <input type="text" id="newOfficerName" placeholder="Имя нового сотрудника (Фамилия И.О.)" aria-describedby="newOfficerNameHelp" required minlength="2" maxlength="50" pattern="[А-Яа-яA-Za-z\s]+">
+                    <button class="btn btn--save" data-action="addOfficer">Добавить</button>
+                    <span id="newOfficerNameHelp" class="validation-message" aria-live="polite"></span>
+                </div>
+                <div class="current-officers-list" id="currentOfficersList"></div>
+            </section>
+        </main>
+        <footer>
+            <!-- Здесь может быть информация о копирайте или ссылки -->
+        </footer>
+    </div>
+
+    <!-- MODALS (kept outside the main container for positioning) -->
+    <!-- Universal Modal for Editing -->
+    <div class="modal-overlay" id="editModalOverlay" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
+        <div class="modal" id="editModal">
+            <div class="modal-header">
+                <!-- ИСПРАВЛЕНИЕ: Добавлен пустой текст для заголовка -->
+                <h4 id="editModalTitle">Заголовок</h4>
+                <button class="modal-close" data-action="closeModal" aria-label="Закрыть окно">&times;</button>
+            </div>
+            <div class="modal-body" id="editModalBody"></div>
+        </div>
+    </div>
+    
+    <!-- Enlarged Day View Modal -->
+    <div class="modal-overlay" id="viewModalOverlay" role="dialog" aria-modal="true" aria-labelledby="viewModalTitle">
+        <div class="modal">
+            <div class="modal-header">
+                <h4 id="viewModalTitle">Просмотр дня</h4>
+                <button class="modal-close" data-action="closeModal" aria-label="Закрыть окно">&times;</button>
+            </div>
+            <div class="modal-body enlarged-day-content" id="viewModalBody"></div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal-overlay confirm-modal" id="confirmModalOverlay" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+        <div class="modal">
+            <div class="modal-header">
+                <h4 id="confirmModalTitle">Подтверждение</h4>
+                <button class="modal-close" data-action="closeConfirmModal" aria-label="Закрыть окно подтверждения">&times;</button>
+            </div>
+            <div class="modal-body" id="confirmModalMessage"></div>
+            <div class="modal-footer">
+                <button class="btn btn--save" id="confirmModalConfirmBtn" data-action="confirmModalConfirm">Да</button>
+                <button class="btn btn--cancel" id="confirmModalCancelBtn" data-action="confirmModalCancel">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Modal (if needed in the future) -->
+    <div class="modal-overlay" id="summaryModalOverlay" role="dialog" aria-modal="true" aria-labelledby="summaryModalTitle">
+        <div class="modal">
+            <div class="modal-header">
+                <!-- ИСПРАВЛЕНИЕ: Добавлен пустой текст для заголовка -->
+                <h4 id="summaryModalTitle">Сводка</h4>
+                <button class="modal-close" data-action="closeSummaryModal" aria-label="Закрыть окно">&times;</button>
+            </div>
+            <div class="modal-body" id="summaryModalBody" style="max-height: 70vh; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <!-- Stats Modal -->
+    <div class="modal-overlay" id="statsModalOverlay" role="dialog" aria-modal="true" aria-labelledby="statsModalTitle">
+        <div class="modal" id="statsModal">
+            <div class="modal-header">
+                <h4 id="statsModalTitle">Моя статистика</h4>
+                <button class="modal-close" data-action="closeModal" aria-label="Закрыть окно">&times;</button>
+            </div>
+            <div class="modal-body stats-modal-content" id="statsModalBody">
+                <!-- ИСПРАВЛЕНИЕ: Добавлен пустой текст для заголовка -->
+                <h3 id="statsUserName">Имя пользователя</h3>
+                <p id="statsSummary"></p>
+                <ul id="personalShiftList"></ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Profile Modal -->
+    <div class="modal-overlay" id="profileModalOverlay" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
+        <div class="modal" id="profileModal">
+            <div class="modal-header">
+                <h4 id="profileModalTitle">Мой профиль</h4>
+                <button class="modal-close" id="closeProfileModal" aria-label="Закрыть окно">&times;</button>
+            </div>
+            <div class="modal-body profile-modal-content" id="profileModalBody">
+                <!-- Контент профиля будет вставлен JS -->
+            </div>
+        </div>
+    </div>
+
+    <div id="toastContainer" aria-live="polite"></div>
+
+    <script>
+    // Оборачиваем весь код в IIFE для создания замкнутой области видимости
+    (function() {
+        'use strict';
+
+        /**
+         * CONFIG: Константы и конфигурация приложения
+         */
+        const CONFIG = {
+            ROLES: {
+                // !!! ЗАМЕНИТЕ ЭТИ ID НА РЕАЛЬНЫЕ TELEGRAM ID !!!
+                'local_test_admin_id': 'admin', // Морозов В.А. (тестовый админ)
+                123456789: 'admin',   // Пример ID администратора
+                987654321: 'boss',    // Пример ID начальника
+                111222333: 'worker',  // Пример ID работяги
+                670669284: 'admin',   // Ypy_FF (админ)
+                7087677065: 'boss'    // S 1 (начальник, для тестов)
+            },
+            ROLE_NAMES: { // Отображаемые имена ролей
+                'admin': 'Администратор',
+                'boss': 'Начальник',
+                'worker': 'Работяга',
+                'guest': 'Гость' // Роль по умолчанию для неназначенных ID
+            },
+            TAB_NAMES: { // Отображаемые имена вкладок
+                'duty': 'дежурств',
+                'technician': 'техников',
+                'general': 'общий'
+            },
+            DOM_SELECTORS: {
+                container: '#appContainer',
+                monthSelector: '#monthSelector',
+                yearSelector: '#yearSelector', // Добавлен селектор для года
+                roleSwitcher: '#roleSwitcher', // Добавлен селектор для переключателя ролей
+                newOfficerName: '#newOfficerName',
+                dutyCalendarGrid: '#dutyCalendarGrid',
+                technicianCalendarGrid: '#technicianCalendarGrid',
+                generalCalendarGrid: '#generalCalendarGrid',
+                statsList: '#statsList',
+                currentOfficersList: '#currentOfficersList',
+                actionButtons: '#actionButtons',
+                tabNavigation: '#tabNavigation',
+                topControls: '#topControls', // New selector for top buttons container
+                editModal: {
+                    overlay: '#editModalOverlay',
+                    title: '#editModalTitle',
+                    body: '#editModalBody',
+                },
+                viewModal: {
+                    overlay: '#viewModalOverlay',
+                    title: '#viewModalTitle',
+                    body: '#viewModalBody',
+                },
+                confirmModal: {
+                    overlay: '#confirmModalOverlay',
+                    message: '#confirmModalMessage',
+                    confirmBtn: '#confirmModalConfirmBtn',
+                    cancelBtn: '#confirmModalCancelBtn',
+                },
+                summaryModal: {
+                    overlay: '#summaryModalOverlay',
+                    title: '#summaryModalTitle',
+                    body: '#summaryModalBody',
+                },
+                profileModal: { // New selector for profile modal
+                    overlay: '#profileModalOverlay',
+                    title: '#profileModalTitle',
+                    body: '#profileModalBody',
+                },
+                statsModal: { // New selector for stats modal
+                    overlay: '#statsModalOverlay',
+                    title: '#statsModalTitle',
+                    body: '#statsModalBody',
+                }
+            },
+            STORAGE_KEYS: {
+                DUTIES: 'calendar_duties_v2.5',
+                TECH_DUTIES: 'calendar_tech_duties_v2.5',
+                GENERAL_SCHEDULE: 'calendar_general_schedule_v2.5',
+                OFFICERS: 'calendar_officers_v2.5',
+                TECHNICIANS: 'calendar_technicians_v2.5',
+                USERS: 'calendar_users_v2.5', // New key for global user profiles
+            },
+            SHIFT_TYPES: ["8", "ДС", "День караул", "Ночь караул", "Отсыпной", "Выходной", "Отпуск", "Больничный"], // Убрано "8pc"
+            // Define hours for each shift type
+            SHIFT_HOURS: {
+                "8": 8,
+                "ДС": 24, // Дежурство суточное
+                "День караул": 12,
+                "Ночь караул": 12,
+                "Отсыпной": 0,
+                "Выходной": 0,
+                "Отпуск": 0,
+                "Больничный": 0
+            },
+            NO_DUTY_LABEL: "Нет дежурства",
+            NAME_REGEX: /^[А-ЯЁ][а-яё]+\s[А-ЯЁ]\.[А-ЯЁ]\.$/,
+            INITIAL_DATA: {
+                officers: ["Морозов В.А.", "Ребраков Т.В.", "Костырин С.С.", "Бонадыков В.В.", "Бурлаков М.Ю.", "Артемьев А.М.", "Мефед И.С."],
+                technicians: ["Ребраков Т.В.", "Морозов В.А.", "Кузавлев П.С.", "Лебедев А.В.", "Денщиков А.А."],
+                julyDuties: { "1": "Ребраков Т.В.", "2": "Костырин С.С.", "3": "Морозов В.А.", "4": "Ребраков Т.В.", "6": "Костырин С.С.", "7": "Костырин С.С.", "8": "Ребраков Т.В.", "9": "Морозов В.А.", "10": "Морозов В.А.", "11": "Костырин С.С.", "12": "Ребраков Т.В.", "13": "Морозов В.А.", "14": "Костырин С.С.", "15": "Ребраков Т.В.", "16": "Морозов В.А.", "17": "Ребраков Т.В.", "18": "Ребраков Т.В.", "19": "Костырин С.С.", "20": "Морозов В.А.", "21": "Костырин С.С.", "22": "Ребраков Т.В.", "23": "Морозов В.А.", "24": "Костырин С.С.", "25": "Ребраков Т.В.", "26": "Морозов В.А.", "27": "Костырин С.С.", "28": "Костырин С.С.", "29": "Морозов В.А.", "30": "Костырин С.С.", "31": "Ребраков Т.В." },
+            },
+            // SVG icons for accessories
+            ACCESSORY_ICONS: {
+                crown: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="gold" stroke="black" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 10l2-6h10l2 6M2 10h20M6 14l-2 8h16l-2-8M12 2v2M9 5l1 1M15 5l-1 1"/></svg>`,
+                tie: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="navy" stroke="white" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L9 9h6l-3 7L7 22l5-3 5 3-3-6 3-7h-6z"/></svg>`,
+                // Updated horns to look more demonic
+                horns: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="brown" stroke="black" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12c-1.1 0-2 .9-2 2s.9 2 2 2h.5c.3 0 .6-.1.8-.4l.7-.7c.3-.3.8-.4 1.2-.2l.6.3c.4.2.9.2 1.3 0l.6-.3c.4-.2.9-.1 1.2.2l.7.7c.2.2.5.4.8.4H20c1.1 0 2-.9 2-2s-.9-2-2-2h-1.5c-.3 0-.6.1-.8.4l-.7.7c-.3.3-.8.4-1.2.2l-.6-.3c-.4-.2-.9-.2-1.3 0l-.6.3c-.4.2-.9-.1 1.2-.2l-.7-.7c-.2-.2-.5-.4-.8-.4H4zM4 12V6c0-1.1.9-2 2-2h.5c.3 0 .6.1.8.4l.7.7c.3.3.8.4 1.2.2l.6-.3c.4-.2.9-.2 1.3 0l.6.3c.4.2-.9-.1 1.2-.2l-.7-.7c-.2-.2-.5-.4-.8-.4H20c1.1 0 2 .9 2 2v6"/></svg>`,
+                medal: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="silver" stroke="black" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l4 4M12 4l-4 4"/></svg>`,
+                // New halo icon
+                halo: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="gold" stroke="orange" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="5"/><path d="M12 2a10 10 0 0 0-10 10c0 5.52 4.48 10 10 10s10-4.48 10-10A10 10 0 0 0 12 2z" fill="none"/></svg>`,
+                // New glow icon
+                glow: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="yellow" stroke="orange" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" fill="yellow" opacity="0.5"/><path d="M12 2v20M2 12h20M4.9 4.9l14.1 14.1M4.9 19.1l14.1-14.1" stroke="orange" stroke-opacity="0.8"/></svg>`
+            }
+        };
+
+        /**
+         * STATE: Единственный источник правды для состояния приложения.
+         * Соответствует части Model в паттерне MVC (данные).
+         */
+        const STATE = {
+            telegramUser: null,
+            userRole: 'guest',
+            year: new Date().getFullYear(),
+            currentMonth: new Date().getMonth(),
+            activeTab: 'duty',
+            isEditMode: false, // ПО УМОЛЧАНИЮ ВЫКЛЮЧЕН
+            hasUnsavedChanges: false,
+            duties: {},
+            techDuties: {},
+            generalSchedule: {},
+            officers: [],
+            technicians: [],
+            users: {}, // New: Stores all user profiles
+            confirmModalResolve: null,
+            currentSelectedDay: null,
+            theme: 'dark' // Добавлено состояние темы
+        };
+
+        /**
+         * SERVICE: "Мозг" приложения. Управляет состоянием и бизнес-логикой.
+         * Соответствует Controller и части Model в паттерне MVC (логика обработки данных).
+         */
+        const SERVICE = {
+            init() {
+                this.initTelegram();
+                this.loadData();
+                this.loadTheme(); // Загружаем тему
+                VIEW.init();
+                CONTROLLER.init();
+                console.log("Приложение инициализировано для пользователя:", STATE.telegramUser, "с ролью:", STATE.userRole);
+            },
+
+            initTelegram() {
+                const tg = window.Telegram.WebApp;
+                tg.ready();
+                STATE.telegramUser = tg.initDataUnsafe.user;
+
+                // Для тестирования в браузере (если Telegram.WebApp недоступен)
+                if (!STATE.telegramUser) {
+                    // Имитируем пользователя с предопределенным ID для локального админа
+                    STATE.telegramUser = { id: 'local_test_admin_id', first_name: 'Морозов В.А.', username: 'morozov_va' };
+                }
+
+                // Определяем роль пользователя на основе его Telegram ID
+                // Если ID не найден в CONFIG.ROLES, роль будет 'guest'
+                STATE.userRole = CONFIG.ROLES[STATE.telegramUser.id] || 'guest';
+                tg.expand();
+            },
+
+            // --- Security Functions ---
+            isCurrentUser(userId) {
+                return userId === STATE.telegramUser.id;
+            },
+            getCurrentRole() {
+                // Use STATE.telegramUser.id to get the current user's role from CONFIG.ROLES
+                return CONFIG.ROLES[STATE.telegramUser.id] || 'guest';
+            },
+            isAdmin() {
+                return this.getCurrentRole() === 'admin';
+            },
+            isBossOrAdmin() {
+                const role = this.getCurrentRole();
+                return role === 'boss' || role === 'admin';
+            },
+
+            // --- Управление данными ---
+            loadData() {
+                const userId = STATE.telegramUser.id;
+                const loadItem = (key, defaultValue = {}) => {
+                    try {
+                        // For users data, load globally, not per user ID
+                        const storageKey = (key === CONFIG.STORAGE_KEYS.USERS) ? key : `${key}_${userId}`;
+                        const item = localStorage.getItem(storageKey);
+                        return item ? JSON.parse(item) : defaultValue;
+                    } catch (e) {
+                        console.error(`Ошибка парсинга ${key} из localStorage`, e);
+                        VIEW.showNotification('Ошибка парсинга данных из хранилища.', 'error'); // Уведомление пользователю
+                        return defaultValue;
+                    }
+                };
+
+                STATE.duties = loadItem(CONFIG.STORAGE_KEYS.DUTIES, {});
+                STATE.techDuties = loadItem(CONFIG.STORAGE_KEYS.TECH_DUTIES, {});
+                STATE.generalSchedule = loadItem(CONFIG.STORAGE_KEYS.GENERAL_SCHEDULE, {});
+                STATE.officers = loadItem(CONFIG.STORAGE_KEYS.OFFICERS, [...CONFIG.INITIAL_DATA.officers]);
+                STATE.technicians = loadItem(CONFIG.STORAGE_KEYS.TECHNICIANS, [...CONFIG.INITIAL_DATA.technicians]);
+
+                // Load users data globally
+                STATE.users = loadItem(CONFIG.STORAGE_KEYS.USERS, {});
+
+                // Initialize user profiles for all known personnel (officers + technicians)
+                const allPersonnelNames = [...new Set([...STATE.officers, ...STATE.technicians])];
+                allPersonnelNames.forEach(personName => {
+                    if (!STATE.users[personName]) {
+                        STATE.users[personName] = {
+                            name: personName,
+                            photoURL: '',
+                            accessories: [],
+                            bgColor: VIEW.generateRandomColor(), // New: background color for avatar
+                            textColor: '#ffffff', // New: text color for initials
+                            outlineColor: 'rgba(0, 191, 255, 0.4)', // Renamed from auraColor
+                            stats: {}
+                        };
+                    }
+                });
+
+                // Ensure the current Telegram user has a profile, keyed by their ID
+                // This is for the currently logged-in user's *own* profile, not necessarily an officer/technician
+                if (!STATE.users[userId]) {
+                    STATE.users[userId] = {
+                        name: STATE.telegramUser.first_name || 'Неизвестный',
+                        photoURL: '',
+                        accessories: [],
+                        bgColor: VIEW.generateRandomColor(), // New: background color for avatar
+                        textColor: '#ffffff', // New: text color for initials
+                        outlineColor: 'rgba(0, 191, 255, 0.4)', // Renamed from auraColor
+                        stats: {}
+                    };
+                } else {
+                    // Update current user's name if it's different (e.g., first time login)
+                    // Specifically for local_test_admin_id, ensure the name is "Морозов В.А."
+                    if (userId === 'local_test_admin_id' && STATE.users[userId].name !== 'Морозов В.А.') {
+                        STATE.users[userId].name = 'Морозов В.А.';
+                    } else if (STATE.telegramUser.first_name && STATE.users[userId].name !== STATE.telegramUser.first_name) {
+                        STATE.users[userId].name = STATE.telegramUser.first_name;
+                    }
+
+                    // Ensure new fields exist for existing users on load and update old names
+                    if (STATE.users[userId].bgColor === undefined) STATE.users[userId].bgColor = VIEW.generateRandomColor();
+                    if (STATE.users[userId].textColor === undefined) STATE.users[userId].textColor = '#ffffff';
+                    if (STATE.users[userId].outlineColor === undefined) { // Check for old auraColor and migrate
+                        STATE.users[userId].outlineColor = STATE.users[userId].auraColor || 'rgba(0, 191, 255, 0.4)';
+                        delete STATE.users[userId].auraColor; // Remove old property
+                    }
+                    if (STATE.users[userId].accessories === undefined) STATE.users[userId].accessories = [];
+                    if (STATE.users[userId].photoURL === undefined) STATE.users[userId].photoURL = '';
+                }
+
+                // Убедимся, что для каждого месяца есть пустые объекты, чтобы избежать ошибок
+                for (let i = 0; i < 12; i++) {
+                    if (!STATE.duties[i]) STATE.duties[i] = {};
+                    if (!STATE.techDuties[i]) STATE.techDuties[i] = {};
+                    if (!STATE.generalSchedule[i]) STATE.generalSchedule[i] = {};
+                }
+                
+                STATE.hasUnsavedChanges = false; // После загрузки данных, нет несохраненных изменений
+            },
+
+            saveData() {
+                const userId = STATE.telegramUser.id;
+                try {
+                    localStorage.setItem(`${CONFIG.STORAGE_KEYS.DUTIES}_${userId}`, JSON.stringify(STATE.duties));
+                    localStorage.setItem(`${CONFIG.STORAGE_KEYS.TECH_DUTIES}_${userId}`, JSON.stringify(STATE.techDuties));
+                    localStorage.setItem(`${CONFIG.STORAGE_KEYS.GENERAL_SCHEDULE}_${userId}`, JSON.stringify(STATE.generalSchedule));
+                    localStorage.setItem(`${CONFIG.STORAGE_KEYS.OFFICERS}_${userId}`, JSON.stringify(STATE.officers));
+                    localStorage.setItem(`${CONFIG.STORAGE_KEYS.TECHNICIANS}_${userId}`, JSON.stringify(STATE.technicians));
+                    
+                    // Save users data globally
+                    localStorage.setItem(CONFIG.STORAGE_KEYS.USERS, JSON.stringify(STATE.users));
+
+                    STATE.hasUnsavedChanges = false; // После сохранения, нет несохраненных изменений
+                    VIEW.showNotification('Изменения сохранены.', 'success');
+                    VIEW.renderAll();
+                }
+                catch (e) {
+                    console.error("Ошибка сохранения данных в localStorage", e);
+                    VIEW.showNotification('Ошибка сохранения данных.', 'error'); // Уведомление пользователю
+                }
+            },
+
+            loadTheme() {
+                try {
+                    const savedTheme = localStorage.getItem('app_theme');
+                    STATE.theme = savedTheme || 'dark'; // По умолчанию темная тема
+                    document.body.dataset.theme = STATE.theme;
+                } catch (e) {
+                    console.error('Ошибка загрузки темы из localStorage', e);
+                    STATE.theme = 'dark'; // Fallback
+                    document.body.dataset.theme = STATE.theme;
+                }
+            },
+
+            saveTheme(theme) {
+                try {
+                    localStorage.setItem('app_theme', theme);
+                    STATE.theme = theme;
+                    document.body.dataset.theme = theme;
+                } catch (e) {
+                    console.error('Ошибка сохранения темы в localStorage', e);
+                }
+            },
+
+            toggleTheme() {
+                const newTheme = STATE.theme === 'dark' ? 'light' : 'dark';
+                this.saveTheme(newTheme);
+                // Обновляем иконку кнопки темы
+                const themeToggleButton = VIEW.qs('[data-action="toggleTheme"]');
+                if (themeToggleButton) {
+                    themeToggleButton.innerHTML = newTheme === 'dark' ? '&#9728;' : '&#127769;'; // Солнце / Луна
+                }
+            },
+
+            // --- Управление UI ---
+            async changeMonth(newMonth) {
+                if (STATE.hasUnsavedChanges) {
+                    const confirmed = await VIEW.showConfirmModal('Есть несохраненные изменения. Продолжить без сохранения?');
+                    if (!confirmed) {
+                        VIEW.qs(CONFIG.DOM_SELECTORS.monthSelector).value = STATE.currentMonth;
+                        return;
+                    }
+                }
+                STATE.currentMonth = parseInt(newMonth, 10);
+                this.loadData();
+                VIEW.renderAll();
+            },
+
+            async changeYear(newYear) {
+                if (STATE.hasUnsavedChanges) {
+                    const confirmed = await VIEW.showConfirmModal('Есть несохраненные изменения. Продолжить без сохранения?');
+                    if (!confirmed) {
+                        VIEW.qs(CONFIG.DOM_SELECTORS.yearSelector).value = STATE.year;
+                        return;
+                    }
+                }
+                STATE.year = parseInt(newYear, 10);
+                this.loadData();
+                VIEW.renderAll();
+            },
+
+            async toggleEditMode() {
+                // Проверка прав доступа
+                if (!SERVICE.isBossOrAdmin()) {
+                    VIEW.showNotification('Нет прав для редактирования.', 'error');
+                    return;
+                }
+
+                // Логика сохранения/отмены при выходе из режима редактирования
+                if (STATE.isEditMode && STATE.hasUnsavedChanges) {
+                    const confirmed = await VIEW.showConfirmModal('Есть несохраненные изменения. Сохранить перед выходом?');
+                    if (confirmed) this.saveData();
+                    else this.loadData(); // Отменяем изменения, если не сохранили
+                }
+                STATE.isEditMode = !STATE.isEditMode;
+                VIEW.renderAll(); // Перерисовываем для обновления состояния кнопок
+            },
+
+            switchTab(tabName) {
+                STATE.activeTab = tabName;
+                VIEW.renderAll();
+            },
+            
+            // --- Логика календаря ---
+            handleDayClick(day, calendarType) {
+                STATE.currentSelectedDay = day;
+                if (STATE.isEditMode) {
+                    // Проверка прав доступа для редактирования календаря
+                    if (SERVICE.isBossOrAdmin()) {
+                        // В режиме редактирования открываем модальное окно для назначения
+                        if (calendarType === 'duty') VIEW.showDutyModal();
+                        else VIEW.showAssignmentModal(calendarType);
+                    } else {
+                        VIEW.showNotification('Нет прав для редактирования графика.', 'error');
+                    }
+                } else {
+                    // Пункт 1 "selectDuty (Просмотр дня)": Эта функция уже вызывается при клике на ячейку дня в режиме просмотра.
+                    // Нет отдельной кнопки "Просмотр дня" с data-action="selectDuty" в текущей реализации.
+                    VIEW.showEnlargedDayView(day, calendarType); 
+                }
+            },
+
+            async assignDuty(person) {
+                // Проверка прав доступа
+                if (!SERVICE.isBossOrAdmin()) {
+                    VIEW.showNotification('Нет прав для назначения дежурных.', 'error');
+                    VIEW.closeModal();
+                    return;
+                }
+
+                const { currentMonth, currentSelectedDay: day } = STATE;
+                const dayKey = day.toString();
+                const currentDS = STATE.duties[currentMonth][dayKey];
+
+                // Новая валидация: Проверка, существует ли сотрудник в общем списке персонала
+                if (person !== CONFIG.NO_DUTY_LABEL && !this.personExists(person)) {
+                    VIEW.showNotification(`Ошибка: Сотрудник "${person}" не найден в списке персонала.`, 'error');
+                    VIEW.closeModal(); // Закрываем модальное окно, так как выбор недействителен
+                    return;
+                }
+
+                // Определяем список начальников
+                const bossOfficers = CONFIG.INITIAL_DATA.officers.filter(officer =>
+                    ['Морозов В.А.', 'Ребраков Т.В.', 'Костырин С.С.', 'Бонадыков В.В.', 'Бурлаков М.Ю.', 'Артемьев А.М.', 'Мефед И.С.'].includes(officer)
+                );
+
+                // Проверка на назначение ДС только для "Начальников"
+                if (person !== CONFIG.NO_DUTY_LABEL && !bossOfficers.includes(person)) {
+                    VIEW.showNotification(`На роль ДС может быть назначен только начальник.`, 'error');
+                    return;
+                }
+
+                // Если выбран тот же человек, что уже назначен, или "Нет дежурства", просто закрываем модальное окно
+                if (person === currentDS || (person === CONFIG.NO_DUTY_LABEL && !currentDS)) {
+                    VIEW.closeModal();
+                    return;
+                }
+
+                // Если уже есть ДС и выбран другой человек
+                if (currentDS && person !== CONFIG.NO_DUTY_LABEL) {
+                    const confirmed = await VIEW.showConfirmModal(`Дежурный ${currentDS} уже назначен. Заменить его на ${person}?`);
+                    if (!confirmed) {
+                        VIEW.closeModal();
+                        return;
+                    }
+                }
+
+                // 1. Очищаем существующие ДС для этого дня из всех расписаний
+                if (currentDS) {
+                    // Удаляем старое ДС из общего графика
+                    STATE.generalSchedule[currentMonth][dayKey] = (STATE.generalSchedule[currentMonth][dayKey] || [])
+                        .filter(a => !(a.person === currentDS && a.shift === 'ДС'));
+                    if (STATE.generalSchedule[currentMonth][dayKey].length === 0) delete STATE.generalSchedule[currentMonth][dayKey];
+
+                    // Удаляем старое ДС из графика техников, если это был техник
+                    if (STATE.technicians.includes(currentDS)) {
+                        STATE.techDuties[currentMonth][dayKey] = (STATE.techDuties[currentMonth][dayKey] || [])
+                            .filter(a => !(a.person === currentDS && a.shift === 'ДС'));
+                        if (STATE.techDuties[currentMonth][dayKey].length === 0) delete STATE.techDuties[currentMonth][dayKey];
+                    }
+                }
+
+                // 2. Назначаем нового ДС или отменяем дежурство
+                if (person === CONFIG.NO_DUTY_LABEL) {
+                    delete STATE.duties[currentMonth][dayKey];
+                    VIEW.showNotification('Дежурство отменено.', 'info');
+                } else {
+                    STATE.duties[currentMonth][dayKey] = person;
+                    const newDSAssignment = { person, shift: 'ДС' };
+
+                    // Добавляем новое ДС в общий график, удаляя любые другие смены для этого человека
+                    STATE.generalSchedule[currentMonth][dayKey] = (STATE.generalSchedule[currentMonth][dayKey] || [])
+                        .filter(a => a.person !== person); // Удаляем все другие смены для этого человека
+                    STATE.generalSchedule[currentMonth][dayKey].push(newDSAssignment);
+                    STATE.generalSchedule[currentMonth][dayKey].sort((a,b) => a.person.localeCompare(b.person));
+
+                    // Добавляем новое ДС в график техников, если человек является техником, удаляя любые другие смены для этого человека
+                    if (STATE.technicians.includes(person)) {
+                        STATE.techDuties[currentMonth][dayKey] = (STATE.techDuties[currentMonth][dayKey] || [])
+                            .filter(a => a.person !== person); // Удаляем все другие смены для этого человека
+                        STATE.techDuties[currentMonth][dayKey].push(newDSAssignment);
+                        STATE.techDuties[currentMonth][dayKey].sort((a,b) => a.person.localeCompare(b.person));
+                    }
+                    VIEW.showNotification(`Дежурный ${person} назначен.`, 'success');
+                }
+
+                STATE.hasUnsavedChanges = true; // Изменения внесены, помечаем как несохраненные
+                VIEW.closeModal();
+                VIEW.renderAll();
+            },
+
+            async addAssignment(person, shift, calendarType) {
+                // Проверка прав доступа
+                if (!SERVICE.isBossOrAdmin()) {
+                    VIEW.showNotification('Нет прав для добавления назначений.', 'error');
+                    return;
+                }
+
+                const { currentMonth, currentSelectedDay: day } = STATE;
+                const dayKey = day.toString();
+                const scheduleKey = calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
+                
+                // Новая валидация: Проверка, существует ли сотрудник в общем списке персонала
+                if (person !== CONFIG.NO_DUTY_LABEL && !this.personExists(person)) {
+                    VIEW.showNotification(`Ошибка: Сотрудник "${person}" не найден в списке персонала.`, 'error');
+                    return; // Не закрываем модальное окно, чтобы пользователь мог исправить ввод
+                }
+
+                let assignments = STATE[scheduleKey][currentMonth][dayKey] || [];
+                const newAssignment = { person, shift };
+
+                // Правило 1: Только один вид смены у 1 человека в 1 день
+                const existingAssignmentForPerson = assignments.find(a => a.person === person);
+                if (existingAssignmentForPerson) {
+                    if (existingAssignmentForPerson.shift === shift) {
+                        VIEW.showNotification('Такое назначение уже есть.', 'info');
+                        return;
+                    }
+                    // Если у человека уже есть смена, но она другая, спрашиваем о замене
+                    const confirmed = await VIEW.showConfirmModal(`У сотрудника ${person} уже есть смена "${existingAssignmentFor-person.shift}" на этот день. Желаете заменить ее на "${shift}"?`);
+                    if (!confirmed) {
+                        return; // Отменяем добавление, если пользователь не подтвердил
+                    } else {
+                        // Удаляем старое назначение перед добавлением нового
+                        assignments = assignments.filter(a => !(a.person === person && a.shift === existingAssignmentForPerson.shift));
+                        // Также распространяем удаление старой смены
+                        this.propagateAssignmentChange('delete', existingAssignmentForPerson, calendarType);
+                    }
+                }
+
+                // Правило 2: "Ночь караул" -> "Отсыпной" на следующий день
+                // Проверяем как для текущего дня (если назначаем что-то, кроме "Отсыпной", а вчера была "Ночь караул")
+                const prevDay = day - 1;
+                if (prevDay >= 1) { // Проверяем, что это не первый день месяца
+                    const prevDayKey = prevDay.toString();
+                    const prevDayAssignments = STATE[scheduleKey][currentMonth][prevDayKey] || [];
+                    const prevNightShift = prevDayAssignments.find(a => a.person === person && a.shift === 'Ночь караул');
+                    
+                    if (prevNightShift && shift !== 'Отсыпной') { // Если вчера была "Ночь караул" и сегодня не "Отсыпной"
+                        const confirmed = await VIEW.showConfirmModal(`У сотрудника ${person} была смена "Ночь караул" ${prevDay} числа. Вы уверены, что хотите назначить ему "${shift}" вместо "Отсыпной" сегодня? Это лишает человека отдыха.`);
+                        if (!confirmed) {
+                            return; // Отменяем добавление, если пользователь не подтвердил
+                        }
+                    }
+                }
+                
+                // Дополнительная проверка для бага: если ставим "Ночь караул" на текущий день,
+                // а на следующий день уже стоит что-то, кроме "Отсыпной"
+                if (shift === 'Ночь караул') {
+                    const nextDay = day + 1;
+                    const daysInMonth = new Date(STATE.year, STATE.currentMonth + 1, 0).getDate();
+                    if (nextDay <= daysInMonth) {
+                        const nextDayKey = nextDay.toString();
+                        const nextDayAssignments = STATE[scheduleKey][currentMonth][nextDayKey] || [];
+                        const nextDayExistingShift = nextDayAssignments.find(a => a.person === person && a.shift !== 'Отсыпной');
+                        if (nextDayExistingShift) {
+                             const confirmed = await VIEW.showConfirmModal(`Вы назначаете сотруднику ${person} "Ночь караул" ${day} числа. На ${nextDay} число у него уже стоит смена "${nextDayExistingShift.shift}". Это лишает человека отдыха. Желаете продолжить?`);
+                             if (!confirmed) {
+                                 return; // Отменяем добавление, если пользователь не подтвердил
+                             }
+                        }
+                    }
+                }
+
+
+                // Проверяем, является ли человек в данный момент ДС на этот день
+                if (STATE.duties[currentMonth][dayKey] === person && shift !== 'ДС') {
+                    // Если добавляем не-ДС смену для человека, который является ДС, неявно отменяем ДС
+                    delete STATE.duties[currentMonth][dayKey];
+                    VIEW.showNotification(`Дежурство ${person} отменено (новая смена).`, 'info');
+                    
+                    // Также удаляем запись ДС из generalSchedule и techDuties для этого человека
+                    STATE.generalSchedule[currentMonth][dayKey] = (STATE.generalSchedule[currentMonth][dayKey] || [])
+                            .filter(a => !(a.person === person && a.shift === 'ДС'));
+                    if (STATE.generalSchedule[currentMonth][dayKey].length === 0) delete STATE.generalSchedule[currentMonth][dayKey];
+
+                    if (STATE.technicians.includes(person)) {
+                        STATE.techDuties[currentMonth][dayKey] = (STATE.techDuties[currentMonth][dayKey] || [])
+                                .filter(a => !(a.person === person && a.shift === 'ДС'));
+                        if (STATE.techDuties[currentMonth][dayKey].length === 0) delete STATE.techDuties[currentMonth][dayKey];
+                    }
+                    // Переинициализируем назначения для текущего calendarType после удаления ДС
+                    assignments = (STATE[scheduleKey][currentMonth][dayKey] || []).filter(a => a.person !== person); 
+                } else if (shift === 'ДС') {
+                    // Если пытаемся добавить ДС через addAssignment, перенаправляем на assignDuty
+                    SERVICE.assignDuty(person);
+                    return;
+                }
+                
+                // Добавляем новое назначение
+                assignments.push(newAssignment);
+                assignments.sort((a, b) => a.person.localeCompare(b.person));
+                STATE[scheduleKey][currentMonth][dayKey] = assignments;
+
+                // Распространяем изменения на другие соответствующие календари (без логики ДС здесь)
+                this.propagateAssignmentChange('add', newAssignment, calendarType);
+
+                STATE.hasUnsavedChanges = true; // Изменения внесены, помечаем как несохраненные
+                VIEW.renderAssignmentModalList(calendarType);
+                VIEW.renderAll();
+                VIEW.showNotification('Назначение добавлено.', 'success');
+            },
+
+            deleteAssignment(index, calendarType) {
+                // Проверка прав доступа
+                if (!SERVICE.isBossOrAdmin()) {
+                    VIEW.showNotification('Нет прав для удаления назначений.', 'error');
+                    return;
+                }
+
+                const { currentMonth, currentSelectedDay: day } = STATE;
+                const scheduleKey = calendarType === 'technician' ? 'techDuties' : 'generalSchedule';
+                const assignments = STATE[scheduleKey][currentMonth][day];
+                
+                if (!assignments || assignments.length <= index) {
+                    console.error("Попытка удалить несуществующее назначение.");
+                    return;
+                }
+
+                const deletedAssignment = assignments.splice(index, 1)[0];
+                if (assignments.length === 0) delete STATE[scheduleKey][currentMonth][day];
+
+                // Распространяем удаление на другие соответствующие календари
+                this.propagateAssignmentChange('delete', deletedAssignment, calendarType);
+
+                STATE.hasUnsavedChanges = true; // Изменения внесены, помечаем как несохраненные
+                VIEW.renderAssignmentModalList(calendarType);
+                VIEW.renderAll();
+                VIEW.showNotification('Назначение удалено.', 'info');
+            },
+            
+            // Вспомогательная функция для распространения изменений назначений между календарями
+            propagateAssignmentChange(actionType, assignment, sourceCalendar) {
+                const { person, shift } = assignment;
+                const { currentMonth, currentSelectedDay: day } = STATE;
+                const dayKey = day.toString();
+
+                const updateTargetSchedule = (targetSchedule, targetKey) => {
+                    let currentTargetAssignments = targetSchedule[currentMonth][targetKey] || [];
+                    if (actionType === 'add') {
+                        // Добавляем, если еще нет
+                        if (!currentTargetAssignments.some(a => a.person === person && a.shift === shift)) {
+                            currentTargetAssignments.push(assignment);
+                            currentTargetAssignments.sort((a,b) => a.person.localeCompare(b.person));
+                        }
+                    } else { // 'delete'
+                        currentTargetAssignments = currentTargetAssignments.filter(a => !(a.person === person && a.shift === shift));
+                    }
+                    if (currentTargetAssignments.length > 0) {
+                        targetSchedule[currentMonth][targetKey] = currentTargetAssignments;
+                    } else {
+                        delete targetSchedule[currentMonth][targetKey];
+                    }
+                };
+
+                // Логика распространения для generalSchedule
+                if (sourceCalendar === 'technician' && shift !== 'ДС') { // Только если не ДС
+                    updateTargetSchedule(STATE.generalSchedule, dayKey);
+                } 
+                // Логика распространения для techDuties
+                else if (sourceCalendar === 'general' && STATE.technicians.includes(person) && shift !== 'ДС') { // Только если техник и не ДС
+                    updateTargetSchedule(STATE.techDuties, dayKey);
+                }
+                // Примечание: изменения ДС обрабатываются непосредственно в assignDuty/addAssignment, а не здесь.
+            },
+
+            // --- Управление персоналом ---
+            addOfficer(name) {
+                // Проверка прав доступа
+                if (!SERVICE.isAdmin()) {
+                    VIEW.showNotification('Только администратор может добавлять сотрудников.', 'error');
+                    return;
+                }
+
+                const newOfficerNameInput = VIEW.qs(CONFIG.DOM_SELECTORS.newOfficerName);
+                const validationMessageSpan = VIEW.qs('#newOfficerNameHelp');
+
+                // Clear previous validation state
+                newOfficerNameInput.removeAttribute('aria-invalid');
+                validationMessageSpan.textContent = '';
+                validationMessageSpan.classList.remove('show');
+
+                if (!name || name.trim() === '') { // Улучшена проверка на пустое имя
+                    const message = "Имя сотрудника не может быть пустым.";
+                    newOfficerNameInput.setAttribute('aria-invalid', 'true');
+                    validationMessageSpan.textContent = message;
+                    validationMessageSpan.classList.add('show');
+                    VIEW.showNotification(message, 'error');
+                    return;
+                }
+
+                // Санитизация имени с помощью DOMPurify
+                const sanitizedName = DOMPurify.sanitize(name.trim());
+
+                if (!CONFIG.NAME_REGEX.test(sanitizedName)) {
+                    const message = "Введите имя в формате 'Фамилия И.О.'.";
+                    newOfficerNameInput.setAttribute('aria-invalid', 'true');
+                    validationMessageSpan.textContent = message;
+                    validationMessageSpan.classList.add('show');
+                    VIEW.showNotification(message, 'error');
+                    return;
+                }
+                
+                if ([...STATE.officers, ...STATE.technicians].includes(sanitizedName)) {
+                    VIEW.showNotification('Такой сотрудник уже есть.', 'info');
+                    return;
+                }
+                STATE.officers.push(sanitizedName);
+                STATE.technicians.push(sanitizedName); // Добавляем в оба списка по умолчанию
+
+                // Create a new user profile for the added officer if it doesn't exist
+                if (!STATE.users[sanitizedName]) {
+                    STATE.users[sanitizedName] = {
+                        name: sanitizedName,
+                        photoURL: '',
+                        accessories: [],
+                        bgColor: VIEW.generateRandomColor(),
+                        textColor: '#ffffff',
+                        outlineColor: 'rgba(0, 191, 255, 0.4)',
+                        stats: {}
+                    };
+                }
+
+                VIEW.showNotification(`Сотрудник ${sanitizedName} добавлен.`, 'success');
+                newOfficerNameInput.value = '';
+                this.saveData(); // Сохраняем сразу, так как это изменение структуры, а не календаря
+                VIEW.renderManagementList();
+            },
+
+            async deleteOfficer(name) {
+                // Проверка прав доступа
+                if (!SERVICE.isAdmin()) {
+                    VIEW.showNotification('Только администратор может удалять сотрудников.', 'error');
+                    return;
+                }
+
+                // Санитизация имени перед использованием в сообщении
+                const sanitizedName = DOMPurify.sanitize(name);
+                const confirmed = await VIEW.showConfirmModal(`Вы уверены, что хотите удалить ${sanitizedName}? Все связанные назначения будут удалены.`);
+                if (!confirmed) return;
+
+                STATE.officers = STATE.officers.filter(o => o !== name);
+                STATE.technicians = STATE.technicians.filter(t => t !== name);
+
+                // Delete the user profile for the removed officer
+                if (STATE.users[name]) {
+                    delete STATE.users[name];
+                }
+
+                // Удаляем все назначения для этого сотрудника из всех календарей
+                for (let i = 0; i < 12; i++) {
+                    ['duties', 'techDuties', 'generalSchedule'].forEach(key => {
+                        Object.keys(STATE[key][i] || {}).forEach(day => {
+                            if (key === 'duties') {
+                                if (STATE[key][i][day] === name) delete STATE[key][i][day];
+                            } else {
+                                STATE[key][i][day] = (STATE[key][i][day] || []).filter(a => a.person !== name);
+                                if(STATE[key][i][day].length === 0) delete STATE[key][i][day];
+                            }
+                        });
+                    });
+                }
+                this.saveData(); // Сохраняем сразу, так как это изменение структуры, а не календаря
+                VIEW.renderAll();
+            },
+            
+            async clearMonth() {
+                // Проверка прав доступа
+                if (!SERVICE.isBossOrAdmin()) {
+                    VIEW.showNotification('Нет прав для очистки месяца.', 'error');
+                    return;
+                }
+
+                const tabDisplayName = CONFIG.TAB_NAMES[STATE.activeTab];
+                const confirmed = await VIEW.showConfirmModal(`Вы уверены, что хотите очистить график "${tabDisplayName}" за текущий месяц? Все данные будут удалены.`);
+                if (!confirmed) return;
+
+                const keyMap = { duty: 'duties', technician: 'techDuties', general: 'generalSchedule' };
+                STATE[keyMap[STATE.activeTab]][STATE.currentMonth] = {};
+                
+                STATE.hasUnsavedChanges = true; // После очистки есть несохраненные изменения
+                VIEW.showNotification(`График "${tabDisplayName}" за месяц очищен.`, 'info');
+                VIEW.renderAll(); // Перерисовываем, чтобы обновить состояние кнопок
+            },
+            
+            async cancelChanges() {
+                // Проверка прав доступа
+                if (!SERVICE.isBossOrAdmin()) {
+                    VIEW.showNotification('Нет изменений для отмены.', 'error');
+                    return;
+                }
+
+                const confirmed = await VIEW.showConfirmModal('Отменить несохраненные изменения?');
+                if(confirmed) {
+                    this.loadData(); // Перезагружаем данные из localStorage, что сбросит hasUnsavedChanges в false
+                    VIEW.showNotification('Изменения отменены.', 'info');
+                    VIEW.renderAll();
+                }
+            },
+
+            // Вспомогательная функция для проверки существования сотрудника
+            personExists(personName) {
+                // Check if the personName exists as an officer or technician
+                return STATE.officers.includes(personName) || STATE.technicians.includes(personName);
+            },
+
+            // Заглушка для функции изменения ролей других пользователей
+            changeOfficerRole(officerId, newRole) {
+                // Эта функция предназначена для изменения ролей ДРУГИХ пользователей,
+                // что в текущей локальной версии не реализовано, т.к. требует
+                // более сложной системы управления пользователями (например, бэкенда/Firebase).
+                // В данной версии переключатель ролей меняет роль ТОЛЬКО текущего пользователя
+                // для демонстрации различных уровней доступа.
+                console.warn(`Функция changeOfficerRole для ${officerId} на роль ${newRole} не реализована в локальной версии.`);
+                VIEW.showNotification(`Изменение роли для ${officerId} не поддерживается в этой версии.`, 'info');
+            },
+
+            /**
+             * Calculates monthly statistics (shifts and hours) for a given person.
+             * @param {string} personName - The name of the person (or Telegram ID for current user).
+             * @param {number} month - The month (0-11).
+             * @param {number} year - The year.
+             * @returns {{shifts: number, hours: number}} Object with total shifts and hours.
+             */
+            calculateMonthlyStats(personName, month, year) {
+                let totalShifts = 0;
+                let totalHours = 0;
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+                // Helper to add shift if it's for the person and not a duplicate
+                const addShift = (person, shift) => {
+                    if (person === personName) {
+                        totalShifts++;
+                        totalHours += CONFIG.SHIFT_HOURS[shift] || 0;
+                    }
+                };
+
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const dayKey = day.toString();
+
+                    // Check duty schedule
+                    const dutyOfficer = STATE.duties[month]?.[dayKey];
+                    if (dutyOfficer === personName) {
+                        addShift(personName, 'ДС');
+                    }
+
+                    // Check technician schedule
+                    const techAssignments = STATE.techDuties[month]?.[dayKey] || [];
+                    techAssignments.forEach(assignment => {
+                        // Avoid double counting if DS is also in techDuties
+                        if (assignment.person === personName && assignment.shift !== 'ДС') {
+                            addShift(personName, assignment.shift);
+                        }
+                    });
+
+                    // Check general schedule
+                    const generalAssignments = STATE.generalSchedule[month]?.[dayKey] || [];
+                    generalAssignments.forEach(assignment => {
+                        // Avoid double counting if DS or technician shifts are also in generalSchedule
+                        // We assume duties and techDuties are the "source of truth" for those specific types
+                        const isAlreadyCounted = (assignment.shift === 'ДС' && dutyOfficer === personName) ||
+                                                 (STATE.technicians.includes(personName) && techAssignments.some(ta => ta.person === personName && ta.shift === assignment.shift));
+                        
+                        if (assignment.person === personName && !isAlreadyCounted) {
+                            addShift(personName, assignment.shift);
+                        }
+                    });
+                }
+                return { shifts: totalShifts, hours: totalHours };
+            }
+        };
+
+        /**
+         * VIEW: Отвечает за все манипуляции с DOM. Только читает из STATE.
+         * Соответствует View в паттерне MVC.
+         */
+        const VIEW = {
+            init() {
+                this.renderAppShell();
+                this.renderAll();
+            },
+            
+            /**
+             * Safely queries the DOM for a single element.
+             * Logs an error if the element is not found.
+             * @param {string} selector - The CSS selector string.
+             * @param {Element} [parent=document] - The parent element to search within.
+             * @returns {Element|null} The found element or null if not found.
+             */
+            qs(selector, parent = document) {
+                const element = parent.querySelector(selector);
+                if (!element) {
+                    console.warn(`Элемент с селектором "${selector}" не найден`); // Changed to warn as requested
+                }
+                return element;
+            },
+
+            /**
+             * Safely queries the DOM for multiple elements.
+             * @param {string} selector - The CSS selector string.
+             * @param {Element} [parent=document] - The parent element to search within.
+             * @returns {NodeListOf<Element>} A NodeList of found elements (can be empty).
+             */
+            qsa(selector, parent = document) {
+                return parent.querySelectorAll(selector);
+            },
+
+            renderAppShell() {
+                const container = this.qs(CONFIG.DOM_SELECTORS.container);
+                if (!container) return; // Защита от отсутствия контейнера
+
+                // Обновляем атрибут data-theme на body при рендеринге оболочки
+                document.body.dataset.theme = STATE.theme;
+                const themeToggleButton = this.qs('.theme-toggle-btn');
+                if (themeToggleButton) {
+                    themeToggleButton.innerHTML = STATE.theme === 'dark' ? '&#9728;' : '&#127769;'; // Солнце / Луна
+                }
+
+                // Перерисовываем содержимое, чтобы убедиться, что кнопка темы присутствует
+                // (если она не была добавлена в HTML изначально, что сейчас есть)
+                this.renderUserInfo();
+                this.renderRoleSwitcher();
+                this.renderMonthAndYearSelectors();
+                this.renderTabsAndButtons();
+                this.renderAllCalendars();
+                this.renderStatistics();
+                this.renderManagementList();
+                this.updateManagementSectionVisibility();
+                this.updateEditModeButtonVisibility();
+                this.renderTopButtons(); // Render top buttons based on role
+            },
+
+            renderUserInfo() {
+                const userInfoContainer = this.qs('#userInfo');
+                if (userInfoContainer) {
+                    const userId = STATE.telegramUser.id;
+                    const currentUserProfile = STATE.users[userId] || {}; // Get current user's profile
+                    // Use the name from the user's profile if available, otherwise fallback to Telegram data
+                    const userName = currentUserProfile.name || STATE.telegramUser.first_name || 'Неизвестный';
+                    const userUsername = STATE.telegramUser.username;
+                    const roleText = CONFIG.ROLE_NAMES[STATE.userRole] || 'Гость';
+                    userInfoContainer.innerHTML = `Вы вошли как <span>${DOMPurify.sanitize(userName)}</span> (@${DOMPurify.sanitize(userUsername)}) | Роль: <span>${DOMPurify.sanitize(roleText)}</span>`;
+                }
+            },
+
+            renderUnauthorized() {
+                const container = this.qs(CONFIG.DOM_SELECTORS.container);
+                if (container) {
+                    container.innerHTML = `<div class="unauthorized"><h1>Доступ запрещен</h1><p>У вас нет прав для просмотра этого приложения. Пожалуйста, обратитесь к администратору.</p></div>`;
+                }
+                // window.Telegram.WebApp.close(); // Закомментировано для локального тестирования
+            },
+
+            renderAll() {
+                this.renderRoleSwitcher(); // Рендерим переключатель ролей
+                this.renderMonthAndYearSelectors(); // Обновлено для рендеринга обоих селекторов
+                this.renderTabsAndButtons();
+                this.renderAllCalendars();
+                this.renderStatistics();
+                this.renderManagementList();
+                this.updateManagementSectionVisibility(); // Добавлено для управления видимостью
+                this.updateEditModeButtonVisibility(); // Добавлено для управления видимостью кнопки редактирования
+                this.renderTopButtons(); // Re-render top buttons on every full render
+                // Обновляем иконку кнопки темы при каждом рендере
+                const themeToggleButton = this.qs('[data-action="toggleTheme"]');
+                if (themeToggleButton) {
+                    themeToggleButton.innerHTML = STATE.theme === 'dark' ? '&#9728;' : '&#127769;'; // Солнце / Луна
+                }
+            },
+
+            renderTopButtons() {
+                const topControlsContainer = this.qs(CONFIG.DOM_SELECTORS.topControls);
+                if (!topControlsContainer) return;
+            
+                const currentUserRole = SERVICE.getCurrentRole();
+                let buttonsHtml = '';
+            
+                // Кнопки профиля и статистики всегда видны для админа и босса
+                if (currentUserRole === 'admin' || currentUserRole === 'boss') {
+                    buttonsHtml += `<button class="btn-icon-circle" data-action="openProfileEditor" aria-label="Открыть профиль">
+                                        &#128100;
+                                    </button>`;
+                    if (window.location.pathname.includes('test_index.html')) {
+                        buttonsHtml += `<span style="display:inline-block;margin-left:4px;padding:2px 6px;font-size:0.8em;background:#d32f2f;color:#fff;border-radius:6px;vertical-align:middle;">Тест</span>`;
+                    }
+                    buttonsHtml += `<button class="btn-icon-circle" data-action="openMyStats" aria-label="Моя статистика">
+                                        📊
+                                    </button>`;
+                }
+            
+                topControlsContainer.innerHTML = buttonsHtml;
+            },
+
+            renderAllCalendars() {
+                this.renderCalendar('duty');
+                this.renderCalendar('technician');
+                this.renderCalendar('general');
+            },
+            
+            renderMonthAndYearSelectors() {
+                const monthSelector = this.qs(CONFIG.DOM_SELECTORS.monthSelector);
+                const yearSelector = this.qs(CONFIG.DOM_SELECTORS.yearSelector);
+
+                if (!monthSelector || !yearSelector) return;
+
+                // Render Months
+                monthSelector.innerHTML = '';
+                for (let i = 0; i < 12; i++) {
+                    const monthName = new Date(STATE.year, i).toLocaleString('ru-RU', { month: 'long' });
+                    const option = document.createElement('option');
+                    option.value = i;
+                    option.textContent = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+                    option.selected = (i === STATE.currentMonth);
+                    monthSelector.appendChild(option);
+                }
+
+                // Render Years
+                yearSelector.innerHTML = '';
+                const currentYear = new Date().getFullYear();
+                const startYear = currentYear - 5; // Например, 5 лет назад
+                const endYear = currentYear + 5;   // Например, 5 лет вперед
+
+                for (let i = startYear; i <= endYear; i++) {
+                    const option = document.createElement('option');
+                    option.value = i;
+                    option.textContent = i;
+                    option.selected = (i === STATE.year);
+                    yearSelector.appendChild(option);
+                }
+            },
+
+            renderRoleSwitcher() {
+                const roleSwitcherContainer = this.qs('#roleSwitcherContainer');
+                if (!roleSwitcherContainer) return;
+                if (STATE.userRole !== 'admin') {
+                    roleSwitcherContainer.innerHTML = '';
+                    return;
+                }
+                // Получаем все уникальные имена ролей (значения) из CONFIG.ROLES
+                const rolesFromConfig = Object.values(CONFIG.ROLES);
+                // Добавляем 'guest' явно, затем создаем Set для получения уникальных ролей
+                const uniqueRoles = [...new Set([...rolesFromConfig, 'guest'])].sort(); 
+
+                const optionsHtml = uniqueRoles.map(roleKey => {
+                    const roleDisplayName = CONFIG.ROLE_NAMES[roleKey];
+                    return `<option value="${DOMPurify.sanitize(roleKey)}" ${STATE.userRole === roleKey ? 'selected' : ''}>${DOMPurify.sanitize(roleDisplayName)}</option>`;
+                }).join('');
+
+                roleSwitcherContainer.innerHTML = `
+                    <div class="role-switcher">
+                        <label for="roleSwitcher">Роль:</label>
+                        <select class="role-select" id="roleSwitcher">
+                            ${optionsHtml}
+                        </select>
+                    </div>
+                `;
+            },
+
+            renderTabsAndButtons() {
+                // Обновление активной вкладки
+                this.qsa('#tabNavigation .tab-button').forEach(btn => {
+                    if (btn.dataset.tab === STATE.activeTab) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                });
+                this.qsa('.tab-content').forEach(content => {
+                    if (content.id === `${STATE.activeTab}Tab`) {
+                        content.classList.add('active');
+                    } else {
+                        content.classList.remove('active');
+                    }
+                });
+
+                // Обновление видимости кнопок действий
+                const actionButtons = this.qs(CONFIG.DOM_SELECTORS.actionButtons);
+                if (actionButtons) {
+                    // Кнопки действий видны только в режиме редактирования И для админа/начальника
+                    if (STATE.isEditMode && SERVICE.isBossOrAdmin()) {
+                        actionButtons.classList.remove('hidden');
+                    } else {
+                        actionButtons.classList.add('hidden');
+                    }
+                }
+
+                this.qsa('#actionButtons button').forEach(btn => {
+                    if (btn.dataset.action === 'save' || btn.dataset.action === 'cancel') {
+                        btn.disabled = !STATE.hasUnsavedChanges;
+                    } else if (btn.dataset.action === 'clear') {
+                        btn.disabled = false;
+                    }
+                });
+            },
+
+            updateEditModeButtonVisibility() {
+                const editBtn = this.qs('#toggleEditModeBtn');
+                if (editBtn) {
+                    // Кнопка "Редактировать" видна только для админа и начальника
+                    if (SERVICE.isBossOrAdmin()) {
+                        editBtn.style.display = 'flex'; // Используем flex, так как это inline-flex
+                        if (STATE.isEditMode) {
+                            editBtn.classList.add('active-edit-mode');
+                        } else {
+                            editBtn.classList.remove('active-edit-mode');
+                        }
+                    } else {
+                        editBtn.style.display = 'none';
+                    }
+                }
+            },
+
+            renderCalendar(calendarType) {
+                const grid = this.qs(CONFIG.DOM_SELECTORS[`${calendarType}CalendarGrid`]);
+                if (!grid) return;
+
+                const dataMap = { duty: STATE.duties, technician: STATE.techDuties, general: STATE.generalSchedule };
+                const monthData = dataMap[calendarType][STATE.currentMonth] || {};
+                
+                const fragment = document.createDocumentFragment();
+                ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].forEach(day => {
+                    const header = document.createElement('div');
+                    header.className = 'day-header';
+                    header.textContent = day;
+                    fragment.appendChild(header);
+                });
+
+                const firstDayOfMonth = new Date(STATE.year, STATE.currentMonth, 1);
+                const daysInMonth = new Date(STATE.year, STATE.currentMonth + 1, 0).getDate();
+                const firstDayOfWeek = (firstDayOfMonth.getDay() + 6) % 7;
+
+                for (let i = 0; i < firstDayOfWeek; i++) {
+                    fragment.appendChild(document.createElement('div')).className = 'day-cell empty';
+                }
+
+                const today = new Date();
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'day-cell';
+                    cell.dataset.day = day;
+                    
+                    const date = new Date(STATE.year, STATE.currentMonth, day);
+                    const dayOfWeek = (date.getDay() + 6) % 7;
+                    if (dayOfWeek >= 5) cell.classList.add('weekend');
+                    if (date.toDateString() === today.toDateString()) cell.classList.add('current-day');
+                    
+                    // Добавляем ARIA-атрибуты для доступности
+                    cell.setAttribute('tabindex', '0'); // Делаем ячейку фокусируемой
+                    
+                    let ariaLabelText = `${day} ${new Date(STATE.year, STATE.currentMonth, day).toLocaleString('ru-RU', { month: 'long' })}`;
+                    
+                    // Logic to get assignments for the day based on calendarType
+                    let assignmentsForCell = [];
+                    if (calendarType === 'duty') {
+                        const duty = monthData[day];
+                        if (duty) {
+                            assignmentsForCell.push({ person: duty, shift: 'ДС' });
+                            ariaLabelText += `, дежурный: ${DOMPurify.sanitize(duty)}`;
+                        } else {
+                            ariaLabelText += `, нет дежурного`;
+                        }
+                    } else if (calendarType === 'technician') {
+                        assignmentsForCell = Array.isArray(monthData[day]) ? monthData[day] : [];
+                        if (assignmentsForCell.length > 0) {
+                            ariaLabelText += `, техники: ${assignmentsForCell.map(a => `${DOMPurify.sanitize(a.person)} (${DOMPurify.sanitize(a.shift)})`).join(', ')}`;
+                        } else {
+                            ariaLabelText += `, нет назначений техников`;
+                        }
+                    } else if (calendarType === 'general') {
+                        // For general calendar, aggregate from all schedules
+                        const all = [];
+                        const dutyOfficer = STATE.duties[STATE.currentMonth]?.[day];
+                        if (dutyOfficer) {
+                            all.push({ person: dutyOfficer, shift: 'ДС' });
+                        }
+                        if (Array.isArray(STATE.techDuties[STATE.currentMonth]?.[day])) {
+                            all.push(...STATE.techDuties[STATE.currentMonth][day]); 
+                        }
+                        // Ensure generalSchedule[STATE.currentMonth][day] exists and is an array
+                        if (STATE.generalSchedule[STATE.currentMonth]?.[day] && Array.isArray(STATE.generalSchedule[STATE.currentMonth][day])) { 
+                            all.push(...STATE.generalSchedule[STATE.currentMonth][day]); 
+                        }
+
+                        // Deduplicate all assignments
+                        const uniqueAssignmentsMap = new Map();
+                        all.forEach(assignment => {
+                            // Use person and shift to create a unique key
+                            uniqueAssignmentsMap.set(`${assignment.person}-${assignment.shift}`, assignment);
+                        });
+                        assignmentsForCell = Array.from(uniqueAssignmentsMap.values());
+
+                        // Sort the unique assignments
+                        assignmentsForCell.sort((a,b) => {
+                            if (a.shift === 'ДС' && b.shift !== 'ДС') return -1;
+                            if (a.shift !== 'ДС' && b.shift === 'ДС') return 1;
+                            return a.person.localeCompare(b.person, 'ru');
+                        });
+
+                        if (assignmentsForCell.length > 0) {
+                            ariaLabelText += `, назначения: ${assignmentsForCell.map(a => `${DOMPurify.sanitize(a.person)} (${DOMPurify.sanitize(a.shift)})`).join(', ')}`;
+                        } else {
+                            ariaLabelText += `, нет общих назначений`;
+                        }
+                    }
+                    
+                    cell.setAttribute('aria-label', ariaLabelText);
+
+                    // Используем новую функцию для рендеринга аватаров
+                    cell.innerHTML = `<div class="day-number">${day}</div><div class="day-entries-container">${this.createDayEntriesHTML(assignmentsForCell)}</div>`;
+                    
+                    fragment.appendChild(cell);
+                }
+                
+                grid.innerHTML = '';
+                grid.appendChild(fragment);
+            },
+            
+            /**
+             * Создает HTML для отображения аватаров всех назначений за день.
+             * @param {Array<Object>} assignmentsArray - Массив объектов назначений {person: string, shift: string}.
+             * @returns {string} HTML-строка с аватарами.
+             */
+            createDayEntriesHTML(assignmentsArray) {
+                if (assignmentsArray.length === 0) return `<div class="avatar empty"></div>`;
+
+                const getShiftShort = (shift) => {
+                    if (!shift) return '';
+                    const map = { 'День караул': 'ДК', 'Ночь караул': 'НК', 'Отпуск': 'ОТ', 'Больничный': 'БЛ', 'Выходной': 'В', 'Отсыпной': 'О', 'ДС': 'ДС', '8': '8' };
+                    return map[shift] || shift.slice(0, 2).toUpperCase();
+                };
+
+                // Determine avatar size class based on number of assignments
+                let avatarSizeClass = '';
+                if (assignmentsArray.length === 1) {
+                    avatarSizeClass = 'avatar-single';
+                } else if (assignmentsArray.length === 2) {
+                    avatarSizeClass = 'avatar-two';
+                } else {
+                    avatarSizeClass = 'avatar-multiple';
+                }
+
+                return assignmentsArray.map(assignment => {
+                    const { person, shift } = assignment;
+                    // Use personName to get profile, as calendar entries are by name
+                    const userProfile = STATE.users[person] || {}; 
+                    const initials = userProfile.name?.split(' ').map(n => n[0]).join('').toUpperCase() || (person ? person[0].toUpperCase() : '?');
+                    const shortShift = getShiftShort(shift); // Получаем сокращенное название смены
+                    
+                    // Use profile colors, or fallback to generated ones
+                    const bgColor = userProfile.bgColor || this.generateRandomColor();
+                    const textColor = userProfile.textColor || '#ffffff';
+                    const outlineColor = userProfile.outlineColor || 'rgba(0, 191, 255, 0.4)'; // Renamed from auraColor
+
+                    // Sanitize content for title attribute
+                    const sanitizedTitle = DOMPurify.sanitize(`${person}${shift ? ` (${shift})` : ''}`);
+
+                    return this.renderUserAvatar(person, avatarSizeClass, shortShift, sanitizedTitle);
+
+                }).join('');
+            },
+
+            /**
+             * Renders a single user avatar HTML string.
+             * @param {string} userIdentifier - The key for the user in STATE.users (name or Telegram ID).
+             * @param {string} avatarSizeClass - CSS class for avatar sizing (e.g., 'avatar-single', 'avatar-two').
+             * @param {string} shiftShort - Shortened shift string (e.g., 'ДС', 'ДК').
+             * @param {string} title - Title attribute for accessibility.
+             * @returns {string} HTML string for the avatar.
+             */
+            renderUserAvatar(userIdentifier, avatarSizeClass = '', shiftShort = '', title = '') {
+                const user = STATE.users[userIdentifier];
+                if (!user) {
+                    return `<div class="avatar empty ${avatarSizeClass}" title="${title}">?</div>`;
+                }
+
+                const bgColor = user.bgColor || this.generateRandomColor();
+                const textColor = user.textColor || '#ffffff';
+                const outlineColor = user.outlineColor || 'rgba(0, 191, 255, 0.4)'; // Renamed from auraColor
+
+                const accessoriesHtml = (user.accessories || [])
+                    .map(acc => CONFIG.ACCESSORY_ICONS[acc] ? `<div class="accessory ${acc}">${CONFIG.ACCESSORY_ICONS[acc]}</div>` : '')
+                    .join('');
+
+                if (user.photoURL) {
+                    return `
+                        <div class="avatar ${avatarSizeClass}" title="${title}" style="--bg: ${bgColor}; --outline: ${outlineColor};">
+                            <img class="avatar-photo" src="${DOMPurify.sanitize(user.photoURL)}" alt="${DOMPurify.sanitize(user.name || '')}" onerror="this.onerror=null;this.src='https://placehold.co/60x60/4a5568/ffffff?text=IMG';">
+                            ${accessoriesHtml}
+                            ${shiftShort ? `<span class="avatar-shift" style="color: ${textColor}">${DOMPurify.sanitize(shiftShort)}</span>` : ''}
+                        </div>`;
+                } else {
+                    const initials = user.name?.split(' ').map(n => n[0]).join('').toUpperCase() || '?';
+                    return `
+                        <div class="avatar ${avatarSizeClass}" title="${title}" style="--bg: ${bgColor}; --outline: ${outlineColor}; color: ${textColor};">
+                            <span class="avatar-letters">${DOMPurify.sanitize(initials)}</span>
+                            ${accessoriesHtml}
+                            <!-- ИСПРАВЛЕНИЕ: Использовать shiftShort вместо shortShift -->
+                            ${shiftShort ? `<span class="avatar-shift">${DOMPurify.sanitize(shiftShort)}</span>` : ''}
+                        </div>`;
+                }
+            },
+
+            renderStatistics() {
+                const stats = {};
+                // Инициализация статистики для всех активных офицеров/рабочих
+                STATE.officers.forEach(o => { stats[o] = 0; });
+                
+                Object.values(STATE.duties[STATE.currentMonth] || {}).forEach(officer => {
+                    if (officer) stats[officer] = (stats[officer] || 0) + 1;
+                });
+                
+                const sortedOfficers = Object.keys(stats).sort((a, b) => stats[b] - stats[a]);
+                
+                const statsList = this.qs(CONFIG.DOM_SELECTORS.statsList);
+                if (!statsList) return;
+
+                statsList.innerHTML = '';
+                sortedOfficers.forEach(officer => {
+                    const item = document.createElement('div');
+                    item.className = 'stats-item';
+                    // Use profile colors for stats list
+                    const userProfile = STATE.users[officer] || {};
+                    const bgColor = userProfile.bgColor || this.generateRandomColor();
+                    const textColor = userProfile.textColor || '#ffffff';
+
+                    item.innerHTML = `<div class="stats-name" style="background-color:${DOMPurify.sanitize(bgColor)}; color:${DOMPurify.sanitize(textColor)}">${DOMPurify.sanitize(officer)}</div>
+                                      <div class="stats-count">${DOMPurify.sanitize(stats[officer])}</div>`;
+                    statsList.appendChild(item);
+                });
+            },
+            
+            renderManagementList() {
+                const list = this.qs(CONFIG.DOM_SELECTORS.currentOfficersList);
+                if (!list) return;
+
+                list.innerHTML = '';
+                // Пункт 6 "Обновление списка в модалках": renderOfficerList предназначен для общего списка управления, а не для модалок дня.
+                // Он отображает всех офицеров/техников без фильтрации по вкладкам, что является его корректным поведением.
+                [...new Set([...STATE.officers, ...STATE.technicians])].sort().forEach(name => {
+                    const item = document.createElement('div');
+                    item.className = 'current-officer-item';
+                    // Пункт 3 "deleteOfficer (Удалить)": data-name используется корректно.
+                    item.innerHTML = `<span>${DOMPurify.sanitize(name)}</span>
+                                      <button class="delete-officer-btn" data-action="deleteOfficer" data-name="${DOMPurify.sanitize(name)}" title="Удалить ${DOMPurify.sanitize(name)}" aria-label="Удалить сотрудника ${DOMPurify.sanitize(name)}">&times;</button>`;
+                    list.appendChild(item);
+                });
+            },
+
+            updateManagementSectionVisibility() {
+                const section = this.qs('#managementSection');
+                const toggleButton = this.qs('[data-target="managementSection"]');
+                if (!section || !toggleButton) return;
+                // В локальной версии админ и начальник могут видеть раздел управления
+                const show = SERVICE.isBossOrAdmin(); 
+                toggleButton.style.display = show ? 'block' : 'none';
+                if (!show) section.classList.add('hidden-section');
+            },
+
+            // --- Модальные окна ---
+            showDutyModal() {
+                const modalBody = this.qs(CONFIG.DOM_SELECTORS.editModal.body);
+                const modalTitle = this.qs(CONFIG.DOM_SELECTORS.editModal.title);
+                if (!modalBody || !modalTitle) return;
+
+                modalTitle.textContent = 'Выберите дежурного';
+                modalBody.dataset.calendarType = 'duty'; // Устанавливаем тип календаря для модального окна дежурств
+                
+                // Пункт 2 "Фильтрация списка в модалке": Список фильтруется корректно для ДС.
+                const bossOfficers = CONFIG.INITIAL_DATA.officers.filter(officer =>
+                    ['Морозов В.А.', 'Ребраков Т.В.', 'Костырин С.С.', 'Бонадыков В.В.', 'Бурлаков М.Ю.', 'Артемьев А.М.', 'Мефед И.С.'].includes(officer)
+                );
+
+                const availableOfficersForDS = [...bossOfficers, CONFIG.NO_DUTY_LABEL];
+
+                const currentAssignment = STATE.duties[STATE.currentMonth][STATE.currentSelectedDay];
+                const optionsHTML = availableOfficersForDS.map(name => {
+                    const isSelected = (name === currentAssignment || (!currentAssignment && name === CONFIG.NO_DUTY_LABEL));
+                    
+                    // Get profile colors for the officer
+                    const userProfile = STATE.users[name] || {};
+                    const bgColor = userProfile.bgColor || this.generateRandomColor();
+                    const textColor = userProfile.textColor || '#ffffff';
+
+                    return `<button class="officer-option btn" style="background-color:${DOMPurify.sanitize(bgColor)}; color:${DOMPurify.sanitize(textColor)}; ${isSelected ? 'border: 2px solid var(--border-accent); box-shadow: 0 0 10px var(--shadow-accent);' : ''}" data-action="selectDuty" data-name="${DOMPurify.sanitize(name)}">${DOMPurify.sanitize(name)}</button>`;
+                }).join('');
+                
+                modalBody.innerHTML = `<div class="officer-list">${optionsHTML}</div>`;
+                this.openModal('edit');
+            },
+
+            showAssignmentModal(calendarType) {
+                const modalBody = this.qs(CONFIG.DOM_SELECTORS.editModal.body);
+                const modalTitle = this.qs(CONFIG.DOM_SELECTORS.editModal.title);
+                if (!modalBody || !modalTitle) return;
+
+                modalTitle.textContent = `Назначить смену на ${STATE.currentSelectedDay}-е число`;
+                modalBody.dataset.calendarType = calendarType;
+
+                // Пункт 2 "Фильтрация списка в модалке": Список фильтруется корректно в зависимости от calendarType.
+                const people = calendarType === 'technician' ? STATE.technicians : [...new Set([...STATE.officers, ...STATE.technicians])].sort();
+                
+                const peopleOptionsHTML = people.map(p => `<option value="${DOMPurify.sanitize(p)}">${DOMPurify.sanitize(p)}</option>`).join('');
+                const shiftOptionsHTML = CONFIG.SHIFT_TYPES.map((s, i) => `<option value="${DOMPurify.sanitize(s)}" ${i === 0 ? 'selected' : ''}>${DOMPurify.sanitize(s)}</option>`).join('');
+
+                modalBody.innerHTML = `
+                    <div class="assignment-controls">
+                        <select id="personSelect" aria-label="Выберите сотрудника">${peopleOptionsHTML}</select>
+                        <select id="shiftSelect" aria-label="Выберите смену">${shiftOptionsHTML}</select>
+                        <button class="btn btn--save" data-action="addAssignment">Добавить назначение</button>
+                    </div>
+                    <div class="assignments-list-container">
+                        <h5>Текущие назначения:</h5>
+                        <div id="assignmentsList"></div>
+                    </div>`;
+                
+                this.renderAssignmentModalList(calendarType);
+                this.openModal('edit');
+            },
+
+            showEnlargedDayView(day, calendarType) { // Принимаем calendarType
+                const { year, currentMonth } = STATE;
+                const fullDate = new Date(year, currentMonth, day).toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+                const viewModalTitle = this.qs(CONFIG.DOM_SELECTORS.viewModal.title);
+                const viewModalBody = this.qs(CONFIG.DOM_SELECTORS.viewModal.body);
+                if (!viewModalTitle || !viewModalBody) return;
+
+                viewModalTitle.textContent = fullDate;
+                viewModalBody.innerHTML = '';
+
+                let assignmentsToShow = [];
+
+                if (calendarType === 'duty') {
+                    const dutyOfficer = STATE.duties[currentMonth]?.[day];
+                    if (dutyOfficer) {
+                        assignmentsToShow.push({ person: dutyOfficer, shift: 'ДС' });
+                    }
+                } else if (calendarType === 'technician') {
+                    // Для графика техников показываем только назначения из techDuties
+                    if (Array.isArray(STATE.techDuties[currentMonth]?.[day])) {
+                        assignmentsToShow.push(...STATE.techDuties[currentMonth][day]); 
+                    }
+                } else if (calendarType === 'general') {
+                    // Для общего графика агрегируем из всех источников
+                    const all = [];
+                    const dutyOfficer = STATE.duties[currentMonth]?.[day];
+                    if (dutyOfficer) {
+                        all.push({ person: dutyOfficer, shift: 'ДС' });
+                    }
+                    if (Array.isArray(STATE.techDuties[currentMonth]?.[day])) {
+                        all.push(...STATE.techDuties[currentMonth][day]); 
+                    }
+                    if (STATE.generalSchedule[currentMonth]?.[day] && Array.isArray(STATE.generalSchedule[currentMonth][day])) {
+                        all.push(...STATE.generalSchedule[currentMonth][day]); 
+                    }
+                    
+                    // Удаляем дубликаты
+                    const uniqueAssignmentsMap = new Map();
+                    all.forEach(assignment => {
+                        uniqueAssignmentsMap.set(`${assignment.person}-${assignment.shift}`, assignment);
+                    });
+                    assignmentsToShow = Array.from(uniqueAssignmentsMap.values());
+                }
+                
+                if (assignmentsToShow.length === 0) {
+                    viewModalBody.innerHTML = '<p class="no-assignments-message">На этот день нет назначений.</p>';
+                } else {
+                    // Сортировка: сначала ДС, затем остальные по имени
+                    assignmentsToShow.sort((a,b) => {
+                        if (a.shift === 'ДС' && b.shift !== 'ДС') return -1;
+                        if (a.shift !== 'ДС' && b.shift === 'ДС') return 1;
+                        return a.person.localeCompare(b.person, 'ru');
+                    });
+                    assignmentsToShow.forEach(a => {
+                        const p = document.createElement('p');
+                        p.className = 'enlarged-day-assignment'; // Используем класс для стилей
+                        // Get profile colors for the officer
+                        const userProfile = STATE.users[a.person] || {};
+                        const bgColor = userProfile.bgColor || this.generateRandomColor();
+                        const textColor = userProfile.textColor || '#ffffff';
+
+                        p.style.backgroundColor = DOMPurify.sanitize(bgColor);
+                        p.style.color = DOMPurify.sanitize(textColor);
+                        p.textContent = `${DOMPurify.sanitize(a.person)} (${DOMPurify.sanitize(a.shift)})`;
+                        viewModalBody.appendChild(p);
+                    });
+                }
+                this.openModal('view');
+            },
+            
+            renderAssignmentModalList(calendarType) {
+                const list = this.qs('#assignmentsList');
+                if (!list) return;
+                
+                const keyMap = { technician: 'techDuties', general: 'generalSchedule' };
+                const assignments = STATE[keyMap[calendarType]][STATE.currentMonth][STATE.currentSelectedDay] || [];
+                
+                if (assignments.length === 0) {
+                    list.innerHTML = 'Нет назначений.';
+                    return;
+                }
+                // Пункт 6 "Обновление списка в модалках": renderAssignmentModalList уже фильтрует по calendarType.
+                list.innerHTML = assignments.map((a, i) => `
+                    <div class="assignment-item">
+                        <span>${DOMPurify.sanitize(a.person)} (${DOMPurify.sanitize(a.shift)})</span>
+                        <button class="delete-assignment-btn" data-action="deleteAssignment" data-index="${i}" aria-label="Удалить назначение ${DOMPurify.sanitize(a.person)} (${DOMPurify.sanitize(a.shift)})">&times;</button>
+                    </div>`).join('');
+            },
+
+            // Массив для отслеживания открытых модальных окон
+            _openModalOverlays: [],
+            _escapeKeyListener: null,
+
+            openModal(type) {
+                const modalOverlay = this.qs(CONFIG.DOM_SELECTORS[type + 'Modal'].overlay);
+                if (modalOverlay) {
+                    modalOverlay.classList.add('show');
+                    this._openModalOverlays.push(modalOverlay); // Добавляем в список открытых модалок
+                    // Пункт 5 "Модальные окна": Запрещаем прокрутку основного контента.
+                    document.body.style.overflow = 'hidden'; 
+
+                    // Устанавливаем фокус на модальное окно для доступности
+                    const modal = this.qs('.modal', modalOverlay);
+                    if (modal) {
+                        modal.focus();
+                    }
+
+                    // Добавляем слушатель для Escape, если его еще нет
+                    if (!this._escapeKeyListener) {
+                        this._escapeKeyListener = (e) => {
+                            if (e.key === 'Escape') {
+                                // Закрываем последнюю открытую модалку
+                                const lastOpenModal = this._openModalOverlays[this._openModalOverlays.length - 1];
+                                if (lastOpenModal) {
+                                    // Если это модалка подтверждения, то закрываем с результатом false
+                                    if (lastOpenModal.id === 'confirmModalOverlay') {
+                                        this.closeConfirmModal(false);
+                                    } else {
+                                        this.closeModal();
+                                    }
+                                }
+                            }
+                        };
+                        // Пункт 5 "Модальные окна": Добавляем слушатель Escape.
+                        document.addEventListener('keydown', this._escapeKeyListener);
+                    }
+                }
+                const selectedDayCell = this.qs(`.day-cell[data-day='${STATE.currentSelectedDay}']`);
+                if (selectedDayCell) {
+                    selectedDayCell.classList.add('selected-for-modal');
+                }
+            },
+
+            closeModal() {
+                // Удаляем последнюю открытую модалку из списка
+                const closedOverlay = this._openModalOverlays.pop();
+                if (closedOverlay) {
+                    closedOverlay.classList.remove('show');
+                }
+                
+                // Если нет открытых модалок, восстанавливаем прокрутку и удаляем слушатель Escape
+                if (this._openModalOverlays.length === 0) {
+                    // Пункт 5 "Модальные окна": Восстанавливаем прокрутку основного контента.
+                    document.body.style.overflow = '';
+                    if (this._escapeKeyListener) {
+                        // Пункт 5 "Модальные окна": Удаляем слушатель Escape.
+                        document.removeEventListener('keydown', this._escapeKeyListener);
+                        this._escapeKeyListener = null;
+                    }
+                }
+
+                const prevSelected = this.qs('.day-cell.selected-for-modal');
+                if (prevSelected) prevSelected.classList.remove('selected-for-modal');
+                STATE.currentSelectedDay = null;
+            },
+            
+            showConfirmModal(message) {
+                return new Promise(resolve => {
+                    STATE.confirmModalResolve = resolve;
+                    const confirmModalMessage = this.qs(CONFIG.DOM_SELECTORS.confirmModal.message);
+                    if (confirmModalMessage) { // Check if confirmModalMessage exists
+                        confirmModalMessage.textContent = DOMPurify.sanitize(message); // Sanitize message
+                    }
+                    const confirmModalOverlay = this.qs(CONFIG.DOM_SELECTORS.confirmModal.overlay);
+                    if (confirmModalOverlay) {
+                        confirmModalOverlay.classList.add('show');
+                        this._openModalOverlays.push(confirmModalOverlay); // Добавляем в список открытых модалок
+                        // Пункт 5 "Модальные окна": Запрещаем прокрутку основного контента.
+                        document.body.style.overflow = 'hidden'; 
+
+                        // Устанавливаем фокус на модальное окно подтверждения
+                        const modal = this.qs('.modal', confirmModalOverlay);
+                        if (modal) {
+                            modal.focus();
+                        }
+
+                        // Добавляем слушатель для Escape, если его еще нет
+                        if (!this._escapeKeyListener) {
+                            this._escapeKeyListener = (e) => {
+                                if (e.key === 'Escape') {
+                                    // Закрываем последнюю открытую модалку
+                                    const lastOpenModal = this._openModalOverlays[this._openModalOverlays.length - 1];
+                                    if (lastOpenModal) {
+                                        // Если это модалка подтверждения, то закрываем с результатом false
+                                        if (lastOpenModal.id === 'confirmModalOverlay') {
+                                            this.closeConfirmModal(false);
+                                        } else {
+                                            this.closeModal();
+                                        }
+                                    }
+                                }
+                            };
+                            // Пункт 5 "Модальные окна": Добавляем слушатель Escape.
+                            document.addEventListener('keydown', this._escapeKeyListener);
+                        }
+                    }
+                });
+            },
+
+            closeConfirmModal(result) {
+                const confirmModalOverlay = this.qs(CONFIG.DOM_SELECTORS.confirmModal.overlay);
+                if (confirmModalOverlay) {
+                    confirmModalOverlay.classList.remove('show');
+                    // Удаляем из списка открытых модалок
+                    const index = this._openModalOverlays.indexOf(confirmModalOverlay);
+                    if (index > -1) {
+                        this._openModalOverlays.splice(index, 1);
+                    }
+                }
+                // Если нет открытых модалок, восстанавливаем прокрутку и удаляем слушатель Escape
+                if (this._openModalOverlays.length === 0) {
+                    // Пункт 5 "Модальные окна": Восстанавливаем прокрутку основного контента.
+                    document.body.style.overflow = '';
+                    if (this._escapeKeyListener) {
+                        // Пункт 5 "Модальные окна": Удаляем слушатель Escape.
+                        document.removeEventListener('keydown', this._escapeKeyListener);
+                        this._escapeKeyListener = null;
+                    }
+                }
+
+                if (STATE.confirmModalResolve) {
+                    STATE.confirmModalResolve(result);
+                    STATE.confirmModalResolve = null;
+                }
+            },
+
+            /**
+             * Displays the user's profile modal with their information and statistics.
+             */
+            showProfileEditor: function () {
+                if (SERVICE.getCurrentRole() === 'guest') {
+                    this.showNotification("Гостям доступ к профилю закрыт.", 'error');
+                    return;
+                }
+
+                const profileModalBody = this.qs(CONFIG.DOM_SELECTORS.profileModal.body);
+                const profileModalTitle = this.qs(CONFIG.DOM_SELECTORS.profileModal.title);
+                if (!profileModalBody || !profileModalTitle) return;
+
+                const userId = STATE.telegramUser.id;
+                const userProfile = STATE.users[userId];
+
+                if (!userProfile) {
+                    this.showNotification('Профиль пользователя не найден.', 'error');
+                    return;
+                }
+
+                profileModalTitle.textContent = 'Настройки профиля';
+
+                // Calculate statistics for the current month
+                const monthlyStats = SERVICE.calculateMonthlyStats(userProfile.name, STATE.currentMonth, STATE.year);
+                const monthName = new Date(STATE.year, STATE.currentMonth).toLocaleString('ru-RU', { month: 'long' });
+
+                // Render the current avatar preview
+                const currentAvatarHtml = this.renderUserAvatar(userId, 'profile-avatar-display', '', 'Текущий аватар');
+
+                profileModalBody.innerHTML = `
+                    <div class="profile-modal-content">
+                        <div class="profile-avatar-display">
+                            ${currentAvatarHtml}
+                        </div>
+                        <div class="profile-info">
+                            <h3>${DOMPurify.sanitize(userProfile.name)}</h3>
+                            <p>Роль: ${DOMPurify.sanitize(CONFIG.ROLE_NAMES[SERVICE.getCurrentRole()])}</p>
+                        </div>
+                        <div class="profile-stats">
+                            <h4>Статистика за ${DOMPurify.sanitize(monthName)} ${STATE.year}</h4>
+                            <ul>
+                                <li><span>Смен:</span> <span>${DOMPurify.sanitize(monthlyStats.shifts)}</span></li>
+                                <li><span>Часов:</span> <span>${DOMPurify.sanitize(monthlyStats.hours)}</span></li>
+                            </ul>
+                        </div>
+                        <div class="profile-editor-form">
+                            <label>Имя: <input type="text" id="profileName" value="${DOMPurify.sanitize(userProfile.name || '')}" required minlength="2" maxlength="50" pattern="[А-Яа-яA-Za-z\\s.]+"></label>
+                            <label>Фото (URL): <input type="text" id="profilePhoto" value="${DOMPurify.sanitize(userProfile.photoURL || '')}"></label>
+                            <label>Цвет фона: <input type="color" id="profileBg" value="${DOMPurify.sanitize(userProfile.bgColor || '#4a90e2')}"></label>
+                            <div class="modal-footer">
+                                <button class="btn btn--save" data-action="saveProfile">💾 Сохранить</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                this.openModal('profile');
+            },
+
+            saveProfile: function () {
+                const userId = STATE.telegramUser.id;
+                const currentUser = STATE.users?.[userId];
+            
+                if (!currentUser || SERVICE.getCurrentRole() === 'guest') {
+                    this.showNotification("Вы не можете сохранить профиль.", 'error');
+                    return;
+                }
+            
+                const nameInput = this.qs('#profileName');
+                const photoInput = this.qs('#profilePhoto');
+                const bgInput = this.qs('#profileBg');
+            
+                const name = DOMPurify.sanitize(nameInput.value.trim());
+                const photoURL = DOMPurify.sanitize(photoInput.value.trim());
+                const bgColor = DOMPurify.sanitize(bgInput.value);
+            
+                STATE.users[userId] = {
+                    ...currentUser,
+                    name: name,
+                    photoURL: photoURL,
+                    bgColor: bgColor,
+                    // Удалены textColor, outlineColor, accessories
+                };
+            
+                this.closeModal(); // Close the profile modal
+                SERVICE.saveData(); // Save all data, including the updated user profile
+                this.renderAll(); // Re-render the calendar to reflect changes
+                this.showNotification('Профиль сохранен!', 'success');
+            },
+
+            /**
+             * Displays the user's personal statistics modal.
+             */
+            showMyStats: function () {
+                if (SERVICE.getCurrentRole() === 'guest') {
+                    this.showNotification("Гостям доступ к статистике закрыт.", 'error');
+                    return;
+                }
+
+                const statsModalBody = this.qs(CONFIG.DOM_SELECTORS.statsModal.body);
+                const statsModalTitle = this.qs(CONFIG.DOM_SELECTORS.statsModal.title);
+                const statsUserName = this.qs('#statsUserName');
+                const statsSummary = this.qs('#statsSummary');
+                const personalShiftList = this.qs('#personalShiftList');
+
+                if (!statsModalBody || !statsModalTitle || !statsUserName || !statsSummary || !personalShiftList) return;
+
+                const userId = STATE.telegramUser.id;
+                const userProfile = STATE.users[userId];
+                const userName = userProfile?.name || 'Вы';
+                const currentMonth = STATE.currentMonth;
+                const currentYear = STATE.year;
+                const monthName = new Date(currentYear, currentMonth).toLocaleString('ru-RU', { month: 'long' });
+
+                statsModalTitle.textContent = `Моя статистика за ${DOMPurify.sanitize(monthName)} ${currentYear}`;
+                statsUserName.textContent = DOMPurify.sanitize(userName);
+
+                const monthlyStats = SERVICE.calculateMonthlyStats(userName, currentMonth, currentYear);
+                statsSummary.innerHTML = `Смен: <b>${DOMPurify.sanitize(monthlyStats.shifts)}</b>, Часов: <b>${DOMPurify.sanitize(monthlyStats.hours)}</b>`;
+
+                let listItems = '';
+                const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const dayKey = day.toString();
+                    const fullDate = `${day} ${monthName}`;
+                    
+                    let dayAssignments = [];
+
+                    // Check duty schedule
+                    const dutyOfficer = STATE.duties[currentMonth]?.[dayKey];
+                    if (dutyOfficer === userName) {
+                        dayAssignments.push({ person: userName, shift: 'ДС' });
+                    }
+
+                    // Check technician schedule
+                    const techAssignments = STATE.techDuties[currentMonth]?.[dayKey] || [];
+                    techAssignments.forEach(assignment => {
+                        if (assignment.person === userName && assignment.shift !== 'ДС') {
+                            dayAssignments.push(assignment);
+                        }
+                    });
+
+                    // Check general schedule
+                    const generalAssignments = STATE.generalSchedule[currentMonth]?.[dayKey] || [];
+                    generalAssignments.forEach(assignment => {
+                        const isAlreadyCounted = (assignment.shift === 'ДС' && dutyOfficer === userName) ||
+                                                 (STATE.technicians.includes(userName) && techAssignments.some(ta => ta.person === userName && ta.shift === assignment.shift));
+                        
+                        if (assignment.person === userName && !isAlreadyCounted) {
+                            dayAssignments.push(assignment);
+                        }
+                    });
+
+                    // Sort assignments for the day (DS first, then by person/shift)
+                    dayAssignments.sort((a,b) => {
+                        if (a.shift === 'ДС' && b.shift !== 'ДС') return -1;
+                        if (a.shift !== 'ДС' && b.shift === 'ДС') return 1;
+                        return a.person.localeCompare(b.person, 'ru') || a.shift.localeCompare(b.shift, 'ru');
+                    });
+
+                    dayAssignments.forEach(entry => {
+                        const shiftHours = CONFIG.SHIFT_HOURS[entry.shift] || 0;
+                        listItems += `<li><span>${DOMPurify.sanitize(fullDate)}</span> <span>${DOMPurify.sanitize(entry.shift)} (${DOMPurify.sanitize(shiftHours)} ч)</span></li>`;
+                    });
+                }
+
+                personalShiftList.innerHTML = listItems || '<li>Смен нет</li>';
+                this.openModal('stats');
+            },
+
+            // --- Утилиты ---
+            showNotification(message, type = 'info') {
+                const toastContainer = this.qs('#toastContainer');
+                if (!toastContainer) {
+                    console.error('Toast container not found!');
+                    return;
+                }
+                const notification = document.createElement('div');
+                notification.className = `toast ${type}`; // Use 'toast' class
+                notification.textContent = DOMPurify.sanitize(message); // Sanitize notification message
+                toastContainer.appendChild(notification); // Append to container
+                
+                // Trigger reflow to ensure transition plays
+                void notification.offsetWidth; 
+
+                notification.classList.add('show');
+                
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                    notification.addEventListener('transitionend', () => notification.remove(), { once: true });
+                }, 3000);
+            },
+            
+            getColorFor(str) {
+                // This function is still used for the old 'color' property, but new profile
+                // elements use bgColor/textColor/outlineColor from the user profile directly.
+                // It's kept for backward compatibility with existing data structures that might rely on 'color'.
+                // For new profile features, use user.bgColor, user.textColor, user.outlineColor.
+                if (STATE.users[str] && STATE.users[str].color) {
+                    return STATE.users[str].color;
+                }
+
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                let color = '#';
+                for (let i = 0; i < 3; i++) {
+                    const value = (hash >> (i * 8)) & 0xFF;
+                    color += ('00' + value.toString(16)).substr(-2);
+                }
+                return color;
+            },
+
+            generateRandomColor() {
+                const letters = '0123456789ABCDEF';
+                let color = '#';
+                for (let i = 0; i < 6; i++) {
+                    color += letters[Math.floor(Math.random() * 16)];
+                }
+                return color;
+            },
+
+            isLightColor(hex) {
+                // Проверка на корректность HEX-цвета
+                if (!hex || hex.length !== 7 || hex[0] !== '#') {
+                    console.warn('Некорректный HEX-цвет предоставлен isLightColor:', hex);
+                    return false; // По умолчанию считаем темным или возвращаем false
+                }
+                const r = parseInt(hex.substring(1, 3), 16);
+                const g = parseInt(hex.substring(3, 5), 16);
+                const b = parseInt(hex.substring(5, 7), 16);
+                return (r * 299 + g * 587 + b * 114) / 1000 > 180;
+            }
+        };
+
+        /**
+         * CONTROLLER: Связывает действия пользователя с логикой приложения.
+         * Соответствует Controller в паттерне MVC.
+         */
+        const CONTROLLER = {
+            init() {
+                document.body.addEventListener('click', this.globalClickListener.bind(this));
+                document.addEventListener('change', this.globalChangeListener.bind(this));
+                this.addCalendarTouchListeners();
+
+                // Привязка кнопок профиля и закрытия модального окна
+                const closeProfileModalBtn = VIEW.qs('#closeProfileModal');
+
+                if (closeProfileModalBtn) {
+                    closeProfileModalBtn.addEventListener('click', VIEW.closeModal.bind(VIEW));
+                }
+
+                // Фокусировка на первом элементе модалки при открытии
+                document.querySelectorAll('.modal-overlay').forEach(overlay => {
+                    overlay.addEventListener('transitionend', () => {
+                        if (overlay.classList.contains('show')) {
+                            const firstInput = overlay.querySelector('input, select, button, textarea, [tabindex]:not([tabindex="-1"])');
+                            if (firstInput) firstInput.focus();
+                        }
+                    });
+                });
+                // Закрытие модалок по Esc уже реализовано через _escapeKeyListener
+            },
+
+            ACTIONS: {
+                toggleEditMode: () => SERVICE.toggleEditMode(),
+                save: () => SERVICE.saveData(),
+                cancel: () => SERVICE.cancelChanges(),
+                clear: () => SERVICE.clearMonth(),
+                toggleSection: (e) => {
+                    const targetId = e.target.dataset.target;
+                    const section = VIEW.qs(`#${targetId}`);
+                    if (section) {
+                        section.classList.toggle('hidden-section');
+                        // Update aria-expanded for accessibility
+                        const isExpanded = !section.classList.contains('hidden-section');
+                        e.target.setAttribute('aria-expanded', isExpanded);
+                    }
+                },
+                addOfficer: () => {
+                    const field = VIEW.qs(CONFIG.DOM_SELECTORS.newOfficerName);
+                    const validationMessageSpan = VIEW.qs('#newOfficerNameHelp');
+
+                    // Clear previous validation state
+                    field.removeAttribute('aria-invalid');
+                    validationMessageSpan.textContent = '';
+                    validationMessageSpan.classList.remove('show');
+
+                    if (!field || !field.checkValidity()) {
+                        if (field) {
+                            field.setAttribute('aria-invalid', 'true');
+                            validationMessageSpan.textContent = field.validationMessage || "Пожалуйста, введите корректное имя.";
+                            validationMessageSpan.classList.add('show');
+                        }
+                        VIEW.showNotification('Ошибка валидации при добавлении сотрудника.', 'error');
+                        return;
+                    }
+                    SERVICE.addOfficer(field.value.trim());
+                    field.value = '';
+                },
+                closeModal: () => VIEW.closeModal(),
+                closeConfirmModal: () => VIEW.closeConfirmModal(false), // Default to false for 'x' or overlay clicks
+                closeSummaryModal: () => VIEW.closeModal(), // Re-use closeModal for summary
+                selectDuty: (e) => SERVICE.assignDuty(e.target.dataset.name),
+                addAssignment: (e) => {
+                    const modalBody = e.target.closest('.modal-body');
+                    if (!modalBody) return; // Защита
+                    const person = VIEW.qs('#personSelect', modalBody)?.value;
+                    const shift = VIEW.qs('#shiftSelect', modalBody)?.value;
+                    if (person && shift) { // Проверка, что значения получены
+                        SERVICE.addAssignment(person, shift, modalBody.dataset.calendarType);
+                    } else {
+                        VIEW.showNotification('Ошибка: Не удалось получить данные для назначения.', 'error');
+                    }
+                },
+                deleteAssignment: (e) => {
+                    const modalBody = e.target.closest('.modal-body');
+                    if (!modalBody) return; // Защита
+                    const index = parseInt(e.target.dataset.index, 10);
+                    SERVICE.deleteAssignment(index, modalBody.dataset.calendarType);
+                },
+                deleteOfficer: (e) => {
+                    const name = e.target.dataset.name;
+                    if (name) SERVICE.deleteOfficer(name);
+                },
+                confirmModalConfirm: () => VIEW.closeConfirmModal(true),
+                confirmModalCancel: () => VIEW.closeConfirmModal(false),
+                switchTab: (e) => { // Добавлен обработчик для переключения вкладок
+                    const btn = e.target.closest('.tab-button');
+                    if (!btn) return;
+                    STATE.activeTab = btn.dataset.tab;
+                    VIEW.renderTabsAndButtons();
+                    // Фокус на активной кнопке для мобильных
+                    btn.focus();
+                },
+                toggleTheme: () => SERVICE.toggleTheme(), // Добавлен обработчик для смены темы
+                openProfileEditor: () => VIEW.showProfileEditor(), 
+                saveProfile: () => VIEW.saveProfile(), // Action to save profile changes
+                openMyStats: () => VIEW.showMyStats(), // New action to open my stats modal
+                prevMonth: () => {
+                    let newMonth = STATE.currentMonth - 1;
+                    let newYear = STATE.year;
+                    if (newMonth < 0) {
+                        newMonth = 11;
+                        newYear--;
+                    }
+                    SERVICE.changeMonth(newMonth);
+                    SERVICE.changeYear(newYear);
+                },
+                nextMonth: () => {
+                    let newMonth = STATE.currentMonth + 1;
+                    let newYear = STATE.year;
+                    if (newMonth > 11) {
+                        newMonth = 0;
+                        newYear++;
+                    }
+                    SERVICE.changeMonth(newMonth);
+                    SERVICE.changeYear(newYear);
+                }
+            },
+
+            globalClickListener(e) {
+                const target = e.target;
+                const action = target.dataset.action || target.closest('[data-action]')?.dataset.action;
+
+                if (action) {
+                    const handler = CONTROLLER.ACTIONS[action];
+                    if (typeof handler === 'function') {
+                        try {
+                            handler(e);
+                        } catch (err) {
+                            console.error(err);
+                            VIEW.showNotification('Ошибка выполнения действия', 'error');
+                        }
+                    } else {
+                        console.warn(`Handler «${action}» не реализован`);
+                    }
+                } else if (target.closest('.modal-close')) { // Обработка закрытия модальных окон по кнопке "x"
+                    // Если это кнопка закрытия модального окна подтверждения, передаем false
+                    if (target.closest('#confirmModalOverlay')) {
+                        VIEW.closeConfirmModal(false);
+                    } else {
+                        VIEW.closeModal();
+                    }
+                } else if (target.classList.contains('modal-overlay') && !target.closest('.modal')) { // Обработка закрытия модальных окон по клику вне модального окна
+                    // Если это оверлей модального окна подтверждения, передаем false
+                    if (target.id === 'confirmModalOverlay') {
+                        VIEW.closeConfirmModal(false);
+                    } else {
+                        VIEW.closeModal();
+                    }
+                } else {
+                    const dayCell = target.closest('.day-cell:not(.empty)');
+                    if (dayCell) {
+                        // Ищем ближайший родительский элемент .tab-content для получения calendarType
+                        const tabContent = dayCell.closest('.tab-content'); 
+                        if (tabContent) { // Убедимся, что tabContent существует
+                            SERVICE.handleDayClick(parseInt(dayCell.dataset.day, 10), tabContent.dataset.calendarType);
+                        }
+                    }
+                }
+            },
+
+            globalChangeListener(e) {
+                const target = e.target;
+                // Обработка изменения месяца
+                if (target.id === 'monthSelector') {
+                    SERVICE.changeMonth(target.value);
+                } 
+                // Обработка изменения года
+                else if (target.id === 'yearSelector') {
+                    SERVICE.changeYear(target.value);
+                }
+                // Обработка изменения роли
+                else if (target.id === 'roleSwitcher') {
+                    STATE.userRole = target.value;
+                    // При изменении роли просто перерисовываем UI, без повторной инициализации SERVICE
+                    VIEW.renderAll(); 
+                }
+            },
+
+            addCalendarTouchListeners() {
+                // Делегирование событий касания для календарных сеток
+                VIEW.qsa('.calendar-grid').forEach(grid => {
+                    let touchStartX = 0;
+                    let touchStartY = 0;
+                    let touchMoved = false;
+
+                    grid.addEventListener('touchstart', (e) => {
+                        // Предотвращаем прокрутку страницы при касании календаря
+                        e.preventDefault(); 
+                        touchStartX = e.touches[0].clientX;
+                        touchStartY = e.touches[0].clientY;
+                        touchMoved = false;
+                    }, { passive: false }); // passive: false для preventDefault
+
+                    grid.addEventListener('touchmove', (e) => {
+                        // Предотвращаем прокрутку страницы при касании календаря
+                        e.preventDefault(); 
+                        const touchCurrentX = e.touches[0].clientX;
+                        const touchCurrentY = e.touches[0].clientY;
+                        const deltaX = Math.abs(touchCurrentX - touchStartX);
+                        const deltaY = Math.abs(touchCurrentY - touchStartY);
+
+                        // Если движение достаточно значительное, считаем это свайпом
+                        if (deltaX > 10 || deltaY > 10) {
+                            touchMoved = true;
+                        }
+                    }, { passive: false }); // passive: false для preventDefault
+
+                    grid.addEventListener('touchend', (e) => {
+                        if (!touchMoved) {
+                            // Если не было значительного движения, обрабатываем как "клик"
+                            // Используем e.changedTouches[0] для получения координат последнего касания
+                            const touch = e.changedTouches[0];
+                            const target = document.elementFromPoint(touch.clientX, touch.clientY);
+                            if (target) {
+                                const dayCell = target.closest('.day-cell:not(.empty)');
+                                if (dayCell) {
+                                    // Ищем ближайший родительский элемент .tab-content для получения calendarType
+                                    const tabContent = dayCell.closest('.tab-content'); 
+                                    if (tabContent) {
+                                        SERVICE.handleDayClick(parseInt(dayCell.dataset.day, 10), tabContent.dataset.calendarType);
+                                    }
+                                }
+                            }
+                        }
+                        touchMoved = false; // Сброс состояния
+                    });
+                });
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => SERVICE.init());
+
+    })();
+    </script>
+</body>
+</html>

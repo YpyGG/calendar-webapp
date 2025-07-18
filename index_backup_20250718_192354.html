@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <!-- ИСПРАВЛЕНИЕ: Удален user-scalable=no для улучшения доступности и масштабирования -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Календарь дежурств — Локальная версия</title>
+    <!-- Content Security Policy для предотвращения XSS-атак и разрешения data:URI для изображений -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline' https://telegram.org https://cdnjs.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline';">
+    <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
+    <!-- DOMPurify для санитизации пользовательского ввода -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+    <!-- PWA Manifest Link -->
+    <!-- ПРИМЕЧАНИЕ: manifest.json должен быть доступен по HTTP, а не через file:// протокол, чтобы избежать CORS-ошибок. -->
+    <!-- Запускайте локальный сервер (например, npx http-server .) -->
+    <link rel="manifest" href="/manifest.json">
+    <!-- Web Vitals для аналитики производительности -->
+    <script src="https://unpkg.com/web-vitals@3.5.2/dist/web-vitals.attribution.umd.js"></script>
+    <style>
+/* --- Общие переменные и сброс стилей --- */
+:root {
+    --bg-main: #1a1a2e; /* Основной фон */
+    --bg-container: #0f3460; /* Фон контейнеров */
+    --bg-element: #2d3748; /* Фон элементов */
+    --bg-element-hover: #4a5568; /* Фон элементов при наведении */
+    --bg-accent: #533483; /* Акцентный фон */
+    --bg-weekend: #3d2a45; /* Фон выходных дней */
+    --text-main: #e0e6ed; /* Основной цвет текста */
+    --text-light: #ffffff; /* Светлый текст */
+    --border-main: #4a5568; /* Основной цвет границ */
+    --border-accent: #00bfff; /* Акцентный цвет границ */
+    --btn-green: #059669; /* Зеленая кнопка */
+    --btn-green-hover: #047857; /* Зеленая кнопка при наведении */
+    --btn-red: #dc2626; /* Красная кнопка */
+    --btn-red-hover: #b91c1c; /* Красная кнопка при наведении */
+    --btn-blue: #2563eb; /* Синяя кнопка */
+    --btn-blue-hover: #1d4ed8; /* Синяя кнопка при наведении */
+    --shadow-main: rgba(0,0,0,0.3); /* Основная тень */
+    --shadow-accent: rgba(0, 191, 255, 0.5); /* Акцентная тень */
+    --font-size-xs: 8px; --font-size-sm: 10px; --font-size-md: 12px;
+    --font-size-lg: 14px; --font-size-xl: 16px; --font-size-xxl: 20px;
+}
+
+/* Темная тема */
+[data-theme="dark"] {
+    --bg-main: #1a1a2e;
+    --bg-container: #0f3460;
+    --bg-element: #2d3748;
+    --bg-element-hover: #4a5568;
+    --bg-accent: #533483;
+    --bg-weekend: #3d2a45;
+    --text-main: #e0e6ed;
+    --text-light: #ffffff;
+    --border-main: #4a5568;
+    --border-accent: #00bfff;
+    --btn-green: #059669;
+    --btn-green-hover: #047857;
+    --btn-red: #dc2626;
+    --btn-red-hover: #b91c1c;
+    --btn-blue: #2563eb;
+    --btn-blue-hover: #1d4ed8;
+    --shadow-main: rgba(0,0,0,0.3);
+    --shadow-accent: rgba(0, 191, 255, 0.5);
+}
+
+/* Светлая тема */
+[data-theme="light"] {
+    --bg-main: #f0f2f5;
+    --bg-container: #ffffff;
+    --bg-element: #e0e2e5;
+    --bg-element-hover: #d0d2d5;
+    --bg-accent: #6a1b9a;
+    --bg-weekend: #fce4ec;
+    --text-main: #333333;
+    --text-light: #ffffff;
+    --border-main: #cccccc;
+    --border-accent: #007bff;
+    --btn-green: #28a745;
+    --btn-green-hover: #218838;
+    --btn-red: #dc3545;
+    --btn-red-hover: #c82333;
+    --btn-blue: #007bff;
+    --btn-blue-hover: #0056b3;
+    --shadow-main: rgba(0,0,0,0.1);
+    --shadow-accent: rgba(0, 123, 255, 0.3);
+}
+
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--bg-main);
+    min-height: 100vh;
+    padding: 10px;
+    color: var(--text-main);
+    display: flex;
+    justify-content: center;
+    align-items: flex-start; /* Изменено на flex-start, чтобы контент не центрировался по вертикали */
+    overflow-y: auto; /* Для прокрутки, если контент не помещается */
+}
+.container {
+    max-width: 1200px;
+    width: 100%;
+    margin: 0 auto;
+    background: var(--bg-container);
+    border-radius: 20px;
+    box-shadow: 0 20px 40px var(--shadow-main);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - 20px); /* Чтобы контейнер занимал почти всю высоту */
+}
+.unauthorized { text-align: center; padding: 50px; }
+.unauthorized h1 { color: var(--btn-red); }
+.unauthorized p { line-height: 1.6; }
+
+/* --- Header --- */
+.header {
+    background: linear-gradient(135deg, var(--bg-accent) 0%, var(--bg-container) 100%);
+    color: var(--text-light);
+    padding: 15px;
+    text-align: center;
+    border-bottom: 1px solid var(--border-main);
+    position: relative; /* Для позиционирования кнопки смены темы */
+}
+.user-info { font-size: 0.9em; opacity: 0.9; margin-bottom: 10px; }
+.user-info span { font-weight: bold; }
+.header h1 { 
+    font-size: 1.8em; 
+    font-weight: 300; 
+    margin-bottom: 15px; 
+    text-wrap: balance; /* Автобалансировка текста */
+}
+.role-switcher { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; justify-content: center; }
+.role-switcher label { font-size: 0.9em; opacity: 0.9; }
+/* Общие стили для всех select элементов */
+.month-year-selectors select, .month-selector, .role-select {
+    background: var(--bg-element);
+    color: var(--text-main); /* Изменено на text-main для светлой темы */
+    border: 1px solid var(--border-main);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 14px;
+    cursor: pointer;
+    appearance: none;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="%23e0e6ed" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>');
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 12px;
+}
+[data-theme="light"] .month-year-selectors select,
+[data-theme="light"] .month-selector,
+[data-theme="light"] .role-select {
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="%23333333" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>');
+}
+
+.month-year-selectors select:focus, .month-selector:focus, .role-select:focus {
+    outline: none; border-color: var(--border-accent); box-shadow: 0 0 0 2px var(--shadow-accent);
+}
+.month-year-selectors { display: flex; justify-content: center; gap: 10px; }
+
+
+/* --- Buttons --- */
+.btn {
+    padding: 10px 18px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    font-size: var(--font-size-lg);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+    box-shadow: 0 2px 5px var(--shadow-main);
+    color: var(--text-light);
+    text-decoration: none; /* Для кнопок-ссылок */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;   /* удобнее пальцем */
+    min-height: 48px;
+}
+.btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 8px var(--shadow-main); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn--save { background: var(--btn-green); } .btn--save:hover:not(:disabled) { background: var(--btn-green-hover); }
+.btn--clear { background: var(--btn-red); } .btn--clear:hover:not(:disabled) { background: var(--btn-red-hover); }
+.btn--cancel { background: var(--bg-element-hover); }
+.btn--edit-mode { background: var(--btn-blue); color: var(--text-light); }
+/* Новые стили для активной кнопки редактирования */
+.btn--edit-mode.active-edit-mode {
+    background: var(--btn-green); /* Зеленый фон */
+    border: 2px solid var(--border-accent); /* Синяя рамка */
+    box-shadow: 0 0 8px var(--shadow-accent); /* Синяя тень */
+}
+.btn--blue { background: var(--btn-blue); } .btn--blue:hover:not(:disabled) { background: var(--btn-blue-hover); }
+.btn--toggle { width: 100%; margin-top: 10px; background: var(--bg-element); color: var(--text-main); }
+/* Кнопка смены темы */
+.theme-toggle-btn {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: var(--bg-element);
+    color: var(--text-main);
+    border: 1px solid var(--border-main);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1.2em;
+    box-shadow: 0 2px 5px var(--shadow-main);
+    transition: background 0.2s, color 0.2s, transform 0.2s;
+}
+.theme-toggle-btn:hover {
+    transform: rotate(15deg);
+    background: var(--bg-element-hover);
+}
+/* Контейнер для кнопок профиля и статистики */
+.top-controls-group {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    display: flex;
+    gap: 10px; /* Расстояние между кнопками */
+}
+.top-controls-group .btn-icon-circle {
+    background: var(--bg-element);
+    color: var(--text-main);
+    border: 1px solid var(--border-main);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1.2em;
+    box-shadow: 0 2px 5px var(--shadow-main);
+    transition: background 0.2s, color 0.2s, transform 0.2s;
+}
+.top-controls-group .btn-icon-circle:hover {
+    transform: scale(1.1);
+    background: var(--bg-element-hover);
+}
+
+
+.btn--small { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
+
+/* --- Main Content --- */
+.main-content { padding: 15px; flex-grow: 1; display: flex; flex-direction: column; }
+.section-container { background: var(--bg-main); border-radius: 15px; padding: 15px; border: 1px solid var(--border-main); margin-bottom: 15px; }
+.hidden-section { display: none; }
+/* Добавлено новое правило для скрытия элементов */
+.hidden {
+    display: none !important; 
+}
+
+/* --- Tabs --- */
+.tab-navigation { display: flex; justify-content: center; margin-bottom: 15px; gap: 10px; flex-wrap: wrap; }
+.tab-button { background: var(--bg-element-hover); color: var(--text-main); }
+.tab-button.active { background: var(--bg-accent); box-shadow: 0 0 10px var(--shadow-accent); color: var(--text-light); }
+.tab-content { display: none; } .tab-content.active { display: block; }
+
+/* --- Calendar Grid --- */
+.calendar-grid { 
+    display: grid; 
+    grid-template-columns: repeat(7, 1fr); 
+    grid-auto-rows: minmax(80px, auto); /* Автоматическая высота строк */
+    gap: 2px; 
+}
+.day-header { text-align: center; font-weight: 600; padding: 8px 4px; font-size: var(--font-size-md); }
+.day-cell {
+    background: var(--bg-element);
+    padding: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border-radius: 8px;
+    min-height: 80px;
+    border: 1px solid transparent;
+    position: relative; /* Для позиционирования элементов внутри */
+    /* ИСПРАВЛЕНИЕ: Удалено container-type, так как @container не поддерживается повсеместно */
+    /* container-type: inline-size; */ 
+}
+.day-cell:hover:not(.empty) { 
+    background: var(--bg-element-hover); 
+    border-color: var(--border-accent); 
+    box-shadow: 0 0 8px rgba(0, 191, 255, 0.3); 
+    transform: scale(1.02); /* Микровзаимодействие */
+}
+.day-cell.weekend { background: var(--bg-weekend); }
+.day-cell.current-day { border: 2px solid var(--border-accent); }
+.day-number { font-weight: 700; font-size: var(--font-size-xl); position: absolute; top: 4px; left: 4px; } /* Увеличен шрифт и жирность */
+.day-entries-container { 
+    display: flex; 
+    flex-wrap: wrap; 
+    gap: 1px; 
+    justify-content: center; 
+    align-items: center; 
+    flex-grow: 1; 
+    padding-top: 20px; /* Отступ для номера дня */ 
+}
+
+/* ИСПРАВЛЕНИЕ: Удален @container блок, так как он не поддерживается повсеместно */
+/* @container (min-width: 120px) {
+  .day-entries-container .avatar {
+    width: clamp(30px, 8vw, 50px);
+    height: clamp(30px, 8vw, 50px);
+  }
+} */
+
+/* --- Avatars / Day Entries --- */
+/* Общие стили для аватара */
+.avatar {
+    position: relative;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 0 8px var(--outline, rgba(0, 191, 255, 0.4)); /* Используем CSS-переменную для обводки */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    margin: 2px 0;
+    line-height: 1.1;
+    text-align: center;
+    transition: all 0.2s ease-in-out;
+    flex-shrink: 0;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    background-color: var(--bg, #ccc); /* Используем CSS-переменную для фона */
+    color: var(--text, #fff); /* Используем CSS-переменную для цвета текста */
+    overflow: hidden; /* Обрезаем содержимое, если оно выходит за границы */
+}
+
+/* Размеры аватаров в зависимости от количества назначений */
+.day-entries-container .avatar {
+    width: clamp(35px, 10vw, 60px); /* По умолчанию для одного */
+    height: clamp(35px, 10vw, 60px);
+}
+.day-entries-container .avatar.avatar-two {
+    width: clamp(25px, 7vw, 45px);
+    height: clamp(25px, 7vw, 45px);
+}
+.day-entries-container .avatar.avatar-multiple {
+    width: clamp(18px, 5vw, 36px);
+    height: clamp(18px, 5vw, 36px);
+}
+
+.avatar-photo {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    position: absolute; /* Чтобы аксессуары могли быть поверх */
+    top: 0;
+    left: 0;
+}
+
+.avatar-letters { font-weight: 700; line-height: 1.1; font-size: 1.1em; z-index: 1;} /* Жирнее и чуть больше */
+.avatar-shift { font-weight: 600; opacity: 0.9; margin-top: 2px; line-height: 1.1; font-size: 0.9em; z-index: 1;} /* Жирнее и чуть больше */
+
+.avatar.empty { background-color: transparent !important; box-shadow: none !important; border: none !important; cursor: default; }
+
+/* Styles for accessories */
+.accessory {
+    position: absolute;
+    width: 50%; /* Относительно размера аватара */
+    height: 50%;
+    pointer-events: none; /* Не мешает кликам */
+    z-index: 2; /* Поверх фото/инициалов */
+}
+.accessory.crown { top: 0%; left: 25%; width: 60%; height: 60%; } /* Корона сверху */
+.accessory.tie { bottom: 0%; left: 25%; width: 50%; height: 50%; } /* Галстук снизу */
+.accessory.horns { top: 0%; left: 15%; width: 70%; height: 70%; } /* Рожки сверху */
+.accessory.medal { bottom: 0%; left: 25%; width: 50%; height: 50%; } /* Медаль снизу */
+.accessory.halo { top: -10%; left: 15%; width: 70%; height: 70%; } /* Нимб сверху */
+.accessory.glow { top: 0%; left: 0%; width: 100%; height: 100%; filter: blur(5px); opacity: 0.7; } /* Сияние вокруг */
+
+
+/* --- Statistics --- */
+.stats-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.stats-item { display: flex; justify-content: space-between; align-items: center; background: var(--bg-element); padding: 5px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+.stats-name { padding: 5px 8px; border-radius: 6px; font-weight: 600; }
+.stats-count { font-size: 1.2em; font-weight: bold; color: var(--border-accent); padding: 0 8px; }
+
+/* --- Management Section --- */
+.management-section { margin-bottom: 20px; }
+.management-section h4 { margin-bottom: 10px; border-bottom: 1px solid var(--border-main); padding-bottom: 5px; color: var(--border-accent); }
+.officer-management-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+    align-items: flex-start; /* Выравнивание элементов по верху */
+}
+.officer-management-controls input {
+    flex-grow: 1;
+    background: var(--bg-element);
+    border: 1px solid var(--border-main);
+    border-radius: 8px;
+    padding: 10px;
+    color: var(--text-main); /* Изменено на text-main для светлой темы */
+    min-width: 150px;
+}
+.officer-management-controls input:focus { outline: none; border-color: var(--border-accent); box-shadow: 0 0 0 2px var(--shadow-accent); }
+
+.current-officers-list, .pending-users-list {
+    background: var(--bg-element);
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 15px;
+    box-shadow: inset 0 0 5px rgba(0,0,0,0.2);
+}
+.current-officer-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-main);
+    color: var(--text-main); /* Добавлено для светлой темы */
+}
+.current-officer-item:last-child { border-bottom: none; }
+.officer-actions { display: flex; gap: 10px; align-items: center; }
+.role-selector {
+    background: var(--bg-main);
+    color: var(--text-main); /* Изменено на text-main для светлой темы */
+    border: 1px solid var(--border-main);
+    border-radius: 6px;
+    padding: 5px;
+    appearance: none;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="%23e0e6ed" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>');
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 10px;
+}
+[data-theme="light"] .role-selector {
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="%23333333" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>');
+}
+.role-selector:focus { outline: none; border-color: var(--border-accent); box-shadow: 0 0 0 2px var(--shadow-accent); }
+.delete-officer-btn {
+    background: var(--btn-red);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    min-width: 28px; /* Для мобильных */
+    min-height: 28px; /* Для мобильных */
+    font-size: 1.2em;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+.delete-officer-btn:hover:not(:disabled) { background: var(--btn-red-hover); }
+.pending-users-list p { text-align: center; opacity: 0.7; padding: 10px; }
+
+/* --- Action Buttons Wrapper --- */
+.action-buttons-wrapper { display: flex; justify-content: center; gap: 10px; margin: 15px 0; flex-wrap: wrap; }
+
+/* --- Modals --- */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.7);
+    display: none; /* Скрыто по умолчанию */
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    padding: 15px;
+    backdrop-filter: blur(5px); /* Эффект размытия */
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out;
+}
+.modal-overlay.show {
+    display: flex;
+    opacity: 1;
+}
+.modal {
+    background: var(--bg-container);
+    border-radius: 15px;
+    padding: 20px;
+    width: 100%;
+    max-width: 500px;
+    box-shadow: 0 5px 20px var(--shadow-main);
+    border: 1px solid var(--border-accent);
+    transform: translateY(-20px);
+    opacity: 0;
+    transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+    color: var(--text-main); /* Добавлено для светлой темы */
+}
+.modal-overlay.show .modal {
+    transform: translateY(0);
+    opacity: 1;
+}
+.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+.modal-header h4 { font-size: 1.2em; color: var(--text-main); } /* Изменено на text-main */
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-main); /* Изменено на text-main */
+    font-size: 1.8em;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+.modal-close:hover { color: var(--btn-red); }
+.modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+/* --- Officer List in Duty Modal --- */
+.officer-list {
+    display: flex; /* Изменено на flex для лучшей адаптивности */
+    flex-wrap: wrap; /* Разрешить перенос на новую строку */
+    gap: 12px; /* Уменьшен зазор */
+    justify-content: center;
+    margin: 20px 0 0 0;
+}
+.officer-option.btn.officer-colored-btn,
+.officer-option.btn.no-duty-btn {
+    border-radius: 50px;
+    min-width: 100px; /* Уменьшен min-width */
+    min-height: 40px; /* Уменьшен min-height */
+    font-size: 1em; /* Уменьшен размер шрифта */
+    font-weight: 600;
+    margin: 0;
+    border: none;
+    transition: box-shadow 0.2s, filter 0.2s, transform 0.2s;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    outline: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.officer-option.btn.officer-colored-btn:hover { filter: brightness(1.1) saturate(1.2); box-shadow: 0 0 16px rgba(0,0,0,0.3); transform: translateY(-2px); }
+.officer-option.btn.selected { outline: 2px solid var(--border-accent); box-shadow: 0 0 12px var(--shadow-accent); transform: scale(1.05); }
+.officer-option.btn.no-duty-btn { background: #444; color: #fff; }
+.officer-option.btn.no-duty-btn:hover { background: #666; transform: translateY(-2px); }
+
+/* --- Assignment Modal Controls --- */
+.assignment-controls { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+.assignment-controls select {
+    flex-grow: 1;
+    background: var(--bg-element);
+    color: var(--text-main); /* Изменено на text-main */
+    border-radius: 8px;
+    padding: 10px;
+    border: 1px solid var(--border-main);
+    appearance: none;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="%23e0e6ed" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>');
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 12px;
+}
+[data-theme="light"] .assignment-controls select {
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="%23333333" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>');
+}
+.assignment-controls select:focus { outline: none; border-color: var(--border-accent); box-shadow: 0 0 0 2px var(--shadow-accent); }
+.assignments-list-container h5 { margin-bottom: 8px; color: var(--border-accent); }
+.assignment-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    background: var(--bg-element);
+    border-radius: 8px;
+    margin-bottom: 5px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    color: var(--text-main); /* Добавлено для светлой темы */
+}
+.assignment-item span { font-weight: 500; }
+.delete-assignment-btn {
+    background: var(--btn-red);
+    color: white;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    min-width: 24px; /* Для мобильных */
+    min-height: 24px; /* Для мобильных */
+    border: none;
+    cursor: pointer;
+    font-size: 1.1em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+.delete-assignment-btn:hover { background: var(--btn-red-hover); }
+
+/* --- Enlarged Day View --- */
+.enlarged-day-content {
+    padding: 10px;
+    max-height: 70vh; /* Ограничение высоты */
+    overflow-y: auto; /* Прокрутка, если контент не помещается */
+}
+.enlarged-day-content .warning-message {
+    background: #f44336;
+    color: #fff;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    font-weight: bold;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.enlarged-day-content .enlarged-day-title {
+    margin: 15px 0 8px 0;
+    font-weight: bold;
+    color: var(--border-accent);
+    font-size: 1.2em;
+}
+.enlarged-day-assignment {
+    padding: 10px 15px;
+    border-radius: 8px;
+    margin: 8px 0;
+    font-weight: 600; /* Сделал жирнее */
+    font-size: 1.2em; /* Чуть больше шрифт */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.enlarged-day-assignment:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
+.enlarged-day-content .no-assignments-message {
+    text-align: center;
+    padding: 20px;
+    opacity: 0.7;
+    font-style: italic;
+}
+
+/* --- Notifications --- */
+#toastContainer {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+    max-width: 90%; /* Ensure it doesn't go off screen on small devices */
+}
+.toast { /* Renamed from .notification */
+    background: var(--bg-element);
+    color: white;
+    padding: 15px 25px;
+    border-radius: 12px;
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    min-width: 250px;
+    text-align: center;
+    transform: translateY(20px); /* Start slightly off screen */
+}
+.toast.show { opacity: 1; transform: translateY(0); } /* Slide up when shown */
+.toast.success { background: var(--btn-green); }
+.toast.error { background: var(--btn-red); }
+.toast.info { background: var(--btn-blue); }
+
+/* Validation message specific styles */
+.validation-message {
+    color: var(--btn-red); /* Красный цвет для сообщений об ошибках */
+    font-size: 0.85em;
+    margin-top: 5px;
+    display: block; /* Гарантирует, что занимает отдельную строку */
+    min-height: 1em; /* Резервирует место для предотвращения сдвигов макета */
+    visibility: hidden; /* Скрыто по умолчанию */
+    opacity: 0;
+    transition: visibility 0s, opacity 0.3s ease-in-out;
+    order: 10; /* Помещает сообщение об ошибке под кнопкой */
+    width: 100%; /* Занимает всю ширину */
+}
+
+.validation-message.show {
+    visibility: visible;
+    opacity: 1;
+}
+
+input[aria-invalid="true"] {
+    border-color: var(--btn-red);
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.5);
+}
+
+/* Profile Modal Specific Styles */
+.profile-modal-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    padding: 10px;
+}
+.profile-avatar-display { /* Для отображения аватара в самом профиле */
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background-color: var(--bg-element-hover);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3em;
+    color: var(--text-main);
+    border: 3px solid var(--border-accent);
+    box-shadow: 0 0 15px var(--shadow-accent);
+    overflow: hidden; /* Для изображений профиля */
+    position: relative;
+}
+.profile-avatar-display img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.profile-info h3 {
+    font-size: 1.8em;
+    margin-bottom: 5px;
+    color: var(--text-light);
+    text-align: center;
+}
+.profile-info p {
+    font-size: 1.1em;
+    color: var(--text-main);
+    text-align: center;
+}
+.profile-stats {
+    width: 100%;
+    background: var(--bg-element);
+    border-radius: 10px;
+    padding: 15px;
+    box-shadow: inset 0 0 8px rgba(0,0,0,0.2);
+}
+.profile-stats h4 {
+    color: var(--border-accent);
+    margin-bottom: 10px;
+    text-align: center;
+}
+.profile-stats ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.profile-stats li {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-main);
+}
+.profile-stats li:last-child {
+    border-bottom: none;
+}
+.profile-stats span:first-child {
+    font-weight: 500;
+}
+.profile-stats span:last-child {
+    font-weight: bold;
+    color: var(--text-light);
+}
+
+/* Profile Editor Form Styles */
+.profile-editor-form label {
+    display: block;
+    margin: 10px 0 5px;
+    font-weight: 500;
+    color: var(--text-main);
+}
+.profile-editor-form input[type="text"],
+.profile-editor-form input[type="color"] {
+    width: 100%;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border-main);
+    background: var(--bg-element);
+    color: var(--text-main);
+}
+.profile-editor-form input[type="text"]:focus,
+.profile-editor-form input[type="color"]:focus {
+    outline: none;
+    border-color: var(--border-accent);
+    box-shadow: 0 0 0 2px var(--shadow-accent);
+}
+.profile-editor-form fieldset {
+    border: 1px solid var(--border-main);
+    border-radius: 10px;
+    padding: 10px;
+    margin-top: 15px;
+}
+.profile-editor-form legend {
+    color: var(--border-accent);
+    font-weight: bold;
+    padding: 0 5px;
+}
+.profile-editor-form .accessories-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 10px;
+}
+.profile-editor-form .accessories-grid label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    background: var(--bg-element);
+    padding: 8px 12px;
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+.profile-editor-form .accessories-grid label:hover {
+    background: var(--bg-element-hover);
+}
+.profile-editor-form .accessories-grid input[type="checkbox"] {
+    margin-right: 5px;
+    width: auto; /* Сброс 100% ширины */
+}
+.profile-editor-form .modal-footer {
+    justify-content: center;
+    margin-top: 20px;
+}
+
+/* Stats Modal Specific Styles */
+.stats-modal-content {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    padding: 10px;
+}
+.stats-modal-content h3 {
+    font-size: 1.6em;
+    color: var(--border-accent);
+    text-align: center;
+    margin-bottom: 10px;
+}
+.stats-modal-content p {
+    font-size: 1.1em;
+    text-align: center;
+    margin-bottom: 10px;
+}
+.stats-modal-content ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 300px; /* Ограничение высоты для списка смен */
+    overflow-y: auto; /* Прокрутка, если список длинный */
+    background: var(--bg-element);
+    border-radius: 10px;
+    padding: 10px;
+    box-shadow: inset 0 0 8px rgba(0,0,0,0.2);
+}
+.stats-modal-content li {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-main);
+    font-size: 0.95em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.stats-modal-content li:last-child {
+    border-bottom: none;
+}
+.stats-modal-content li span:first-child {
+    font-weight: 500;
+}
+.stats-modal-content li span:last-child {
+    font-weight: bold;
+    color: var(--text-light);
+}
+
+
+/* --- Responsive adjustments --- */
+@media (max-width: 768px) {
+    .container {
+        margin: 0;
+        border-radius: 0;
+        min-height: 100vh;
+        padding: 0;
+    }
+    body { padding: 0; align-items: stretch; }
+    .header { padding: 10px; }
+    .header h1 { font-size: 1.5em; margin-bottom: 10px; }
+    .role-switcher, .month-year-selectors, .tab-navigation, .officer-management-controls, .action-buttons-wrapper, .assignment-controls {
+        flex-direction: column;
+        gap: 8px;
+    }
+    .month-year-selectors select, .btn, .officer-management-controls input, .assignment-controls select, .role-select {
+        width: 100%;
+    }
+    .day-cell { min-height: 60px; }
+    .day-number { font-size: var(--font-size-md); }
+    /* Аватары в календаре на мобильных */
+    .day-entries-container .avatar { width: 45px; height: 45px; }
+    .day-entries-container .avatar.avatar-two { width: 35px; height: 35px; }
+    .day-entries-container .avatar.avatar-multiple { width: 28px; height: 28px; }
+
+    .avatar.avatar-single .avatar-letters { font-size: 1.5em; }
+    .avatar.avatar-single .avatar-shift { font-size: 0.7em; }
+    .avatar.avatar-two .avatar-letters { font-size: 1.2em; }
+    .avatar.avatar-two .avatar-shift { font-size: 0.5em; }
+    .avatar.avatar-multiple .avatar-letters { font-size: 0.8em; }
+    .avatar.avatar-multiple .avatar-shift { font-size: 0.4em; }
+
+    .stats-list { grid-template-columns: 1fr; }
+    .officer-option.btn.officer-colored-btn, .officer-option.btn.no-duty-btn {
+        min-width: 100%;
+    }
+    .theme-toggle-btn {
+        width: 35px;
+        height: 35px;
+        font-size: 1em;
+        right: 10px; top: 10px;
+    }
+    .top-controls-group {
+        left: 10px; top: 10px;
+        gap: 8px;
+    }
+    .top-controls-group .btn-icon-circle {
+        width: 35px;
+        height: 35px;
+        font-size: 1em;
+    }
+}
+    </style>
+</head>
+<body data-theme="dark">
+    <div class="container" id="appContainer">
+        <header class="header">
+            <div class="user-info" id="userInfo"></div>
+            <div id="roleSwitcherContainer"></div>
+            <h1 id="mainCalendarHeading">Календарь дежурств</h1>
+            <div class="month-year-selectors">
+                <select class="month-selector" id="monthSelector" aria-label="Выберите месяц"></select>
+                <select class="year-selector" id="yearSelector" aria-label="Выберите год"></select>
+            </div>
+            <button class="theme-toggle-btn" data-action="toggleTheme" aria-label="Переключить тему">
+                &#9728; <!-- Солнце (светлая тема) / Луна (темная тема) -->
+            </button>
+            <div class="top-controls-group" id="topControls">
+                <!-- Buttons will be rendered here by JS -->
+            </div>
+        </header>
+        <!-- ИСПРАВЛЕНИЕ: Удалена избыточная роль "main" -->
+        <main class="main-content" id="appMainContent">
+            <nav class="tab-navigation" id="tabNavigation" aria-label="Главное меню">
+                <button class="tab-button btn" data-action="switchTab" data-tab="duty">График дежурств</button>
+                <button class="tab-button btn" data-action="switchTab" data-tab="technician">График техников</button>
+                <button class="tab-button btn" data-action="switchTab" data-tab="general">Общий график</button>
+            </nav>
+            <!-- ИСПРАВЛЕНИЕ: Заменен section на div, так как это контейнер, а не семантический раздел с собственным заголовком -->
+            <div class="section-container" aria-labelledby="mainCalendarHeading">
+                <div id="dutyTab" class="tab-content" data-calendar-type="duty"><div class="calendar-grid" id="dutyCalendarGrid"></div></div>
+                <div id="technicianTab" class="tab-content" data-calendar-type="technician"><div class="calendar-grid" id="technicianCalendarGrid"></div></div>
+                <div id="generalTab" class="tab-content" data-calendar-type="general"><div class="calendar-grid" id="generalCalendarGrid"></div></div>
+            </div>
+            <!-- Кнопка редактирования теперь над статистикой -->
+            <div id="editModeBtnWrapper" style="display:flex;justify-content:center;margin-top:20px;">
+                <button class="btn btn--edit-mode" id="toggleEditModeBtn" data-action="toggleEditMode" aria-expanded="false">Редактировать</button>
+            </div>
+            <!-- Кнопки действий теперь скрыты по умолчанию -->
+            <div class="action-buttons-wrapper hidden" id="actionButtons" style="margin-top: 15px;">
+                <button class="btn btn--save" data-action="save">Сохранить изменения</button>
+                <button class="btn btn--cancel" data-action="cancel">Отменить изменения</button>
+                <button class="btn btn--clear" data-action="clear">Очистить месяц</button>
+            </div>
+            <button class="btn btn--toggle" data-action="toggleSection" data-target="statisticsSection" aria-controls="statisticsSection" aria-expanded="false">Статистика</button>
+            <section class="section-container hidden-section" id="statisticsSection" aria-labelledby="statisticsHeading">
+                <h3 id="statisticsHeading">Статистика дежурств</h3>
+                <div class="stats-list" id="statsList"></div>
+            </section>
+            <button class="btn btn--toggle" data-action="toggleSection" data-target="managementSection" style="margin-top: 10px;" aria-controls="managementSection" aria-expanded="false">Управление</button>
+            <section class="section-container hidden-section" id="managementSection" aria-labelledby="managementHeading">
+                <h3 id="managementHeading">Управление персоналом</h3>
+                <div class="officer-management-controls">
+                    <input type="text" id="newOfficerName" placeholder="Имя нового сотрудника (Фамилия И.О.)" aria-describedby="newOfficerNameHelp" required minlength="2" maxlength="50" pattern="[А-Яа-яA-Za-z\s]+">
+                    <button class="btn btn--save" data-action="addOfficer">Добавить</button>
+                    <span id="newOfficerNameHelp" class="validation-message" aria-live="polite"></span>
+                </div>
+                <div class="current-officers-list" id="currentOfficersList"></div>
+            </section>
+        </main>
+        <footer>
+            <!-- Здесь может быть информация о копирайте или ссылки -->
+        </footer>
+    </div>
+
+    <!-- MODALS (kept outside the main container for positioning) -->
+    <!-- Universal Modal for Editing -->
+    <div class="modal-overlay" id="editModalOverlay" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
+        <div class="modal" id="editModal">
+            <div class="modal-header">
+                <!-- ИСПРАВЛЕНИЕ: Добавлен пустой текст для заголовка -->
+                <h4 id="editModalTitle">Заголовок</h4>
+                <button class="modal-close" data-action="closeModal" aria-label="Закрыть окно">&times;</button>
+            </div>
+            <div class="modal-body" id="editModalBody"></div>
+        </div>
+    </div>
+    
+    <!-- Enlarged Day View Modal -->
+    <div class="modal-overlay" id="viewModalOverlay" role="dialog" aria-modal="true" aria-labelledby="viewModalTitle">
+        <div class="modal">
+            <div class="modal-header">
+                <h4 id="viewModalTitle">Просмотр дня</h4>
+                <button class="modal-close" data-action="closeModal" aria-label="Закрыть окно">&times;</button>
+            </div>
+            <div class="modal-body enlarged-day-content" id="viewModalBody"></div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal-overlay confirm-modal" id="confirmModalOverlay" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+        <div class="modal">
+            <div class="modal-header">
+                <h4 id="confirmModalTitle">Подтверждение</h4>
+                <button class="modal-close" data-action="closeConfirmModal" aria-label="Закрыть окно подтверждения">&times;</button>
+            </div>
+            <div class="modal-body" id="confirmModalMessage"></div>
+            <div class="modal-footer">
+                <button class="btn btn--save" id="confirmModalConfirmBtn" data-action="confirmModalConfirm">Да</button>
+                <button class="btn btn--cancel" id="confirmModalCancelBtn" data-action="confirmModalCancel">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Modal (if needed in the future) -->
+    <div class="modal-overlay" id="summaryModalOverlay" role="dialog" aria-modal="true" aria-labelledby="summaryModalTitle">
+        <div class="modal">
+            <div class="modal-header">
+                <!-- ИСПРАВЛЕНИЕ: Добавлен пустой текст для заголовка -->
+                <h4 id="summaryModalTitle">Сводка</h4>
+                <button class="modal-close" data-action="closeSummaryModal" aria-label="Закрыть окно">&times;</button>
+            </div>
+            <div class="modal-body" id="summaryModalBody" style="max-height: 70vh; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <!-- Profile Modal -->
+    <div class="modal-overlay" id="profileModalOverlay" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
+        <div class="modal" id="profileModal">
+            <div class="modal-header">
+                <h4 id="profileModalTitle">Мой профиль</h4>
+                <button class="modal-close" data-action="closeModal" aria-label="Закрыть окно">&times;</button>
+            </div>
+            <div class="modal-body profile-modal-content" id="profileModalBody">
+                <!-- Content will be rendered here by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Modal -->
+    <div class="modal-overlay" id="statsModalOverlay" role="dialog" aria-modal="true" aria-labelledby="statsModalTitle">
+        <div class="modal" id="statsModal">
+            <div class="modal-header">
+                <h4 id="statsModalTitle">Моя статистика</h4>
+                <button class="modal-close" data-action="closeModal" aria-label="Закрыть окно">&times;</button>
+            </div>
+            <div class="modal-body stats-modal-content" id="statsModalBody">
+                <!-- ИСПРАВЛЕНИЕ: Добавлен пустой текст для заголовка -->
+                <h3 id="statsUserName">Имя пользователя</h3>
+                <p id="statsSummary"></p>
+                <ul id="personalShiftList"></ul>
+            </div>
+        </div>
+    </div>
+

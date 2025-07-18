@@ -1,0 +1,36 @@
+{
+  "name": "calendar-api",
+  "version": "1.0.0",
+  "description": "API для календаря дежурств на Яндекс.Облаке",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "yc serverless function version create --function-name calendar-api --runtime nodejs16 --entrypoint index.handler --memory 128m --execution-timeout 30s --source-path .",
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "joi": "^17.11.0",
+    "pg": "^8.11.3",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.4"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "yandex-cloud",
+    "calendar",
+    "api",
+    "postgresql"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}

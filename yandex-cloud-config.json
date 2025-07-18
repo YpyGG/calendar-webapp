@@ -1,0 +1,28 @@
+{
+  "yandexCloud": {
+    "endpoint": "https://functions.yandexcloud.net/your-function-id",
+    "apiKey": "your-api-key",
+    "database": {
+      "host": "your-database-host",
+      "port": 5432,
+      "database": "your-database-name",
+      "user": "your-database-user",
+      "password": "your-database-password"
+    },
+    "storage": {
+      "bucket": "your-storage-bucket",
+      "region": "ru-central1"
+    }
+  },
+  "app": {
+    "name": "Календарь дежурств",
+    "version": "2.0.0",
+    "defaultAdminId": "670669284",
+    "defaultAdminName": "Администратор"
+  },
+  "security": {
+    "enableSignatureVerification": true,
+    "allowedRoles": ["admin", "boss", "worker", "guest"],
+    "defaultRole": "guest"
+  }
+} 

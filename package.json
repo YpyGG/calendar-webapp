@@ -1,0 +1,17 @@
+{
+  "name": "calendar-webapp",
+  "version": "1.0.0",
+  "description": "Календарь дежурств для Telegram и Яндекс.",
+  "main": "src/js/app.js",
+  "scripts": {
+    "start": "npx http-server public",
+    "lint": "eslint src/js",
+    "test": "echo 'Добавьте тесты'"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "http-server": "^14.0.0"
+  }
+} 
